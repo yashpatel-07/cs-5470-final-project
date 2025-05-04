@@ -6,6 +6,7 @@ import models.VoteInfo;
 import java.util.ArrayList;
 import java.util.List;
 
+import static java.lang.Integer.parseInt;
 import static utils.FindBlockUtil.findBlock;
 
 public class FICBlockchain {
@@ -14,6 +15,13 @@ public class FICBlockchain {
     public FICBlockchain() {
         this.chain = new ArrayList<>();
         createGenesisBlock();
+    }
+
+    public FICBlockchain(String blockString) {
+        this.chain = new ArrayList<>();
+        createGenesisBlock();
+        System.out.println(blockString);
+//        addBlock(blockString);
     }
 
     private void createGenesisBlock() {
@@ -39,24 +47,41 @@ public class FICBlockchain {
     }
 
     public void addBlock(String blockString) {
-        // Parse the blockString to create a new FICBlock
-        String[] parts = blockString.replace("FICBlock{", "").replace("}", "").split(", ");
-        int index = Integer.parseInt(parts[0].split("=")[1]);
-        long timestamp = Long.parseLong(parts[1].split("=")[1]);
-        String prevHash = parts[2].split("=")[1].replace("'", "");
-        List<List<NodeInfo>> nodeInfos = new FICBlock("").parseNodeInfos(parts[3].split("=")[1]);
-        List<VoteInfo> voteInfos = new FICBlock("").parseVoteInfos(parts[4].split("=")[1]);
-        String merkleRoot = parts[5].split("=")[1].replace("'", "");
-        String hash = parts[6].split("=")[1].replace("'", "");
-
-        FICBlock newBlock = new FICBlock(index, nodeInfos, voteInfos, prevHash);
-
-        // Validate the chain before adding the new block
-        if (!validateChain()) {
-            throw new IllegalStateException("Invalid chain. Cannot add new block.");
+        if (blockString == null || blockString.trim().isEmpty()) {
+            throw new IllegalArgumentException("Block string is null or empty.");
         }
 
-        chain.add(newBlock);
+        try {
+            // Split the string by ", " but handle nested structures manually
+            String[] parts = blockString.split(", (?=[a-zA-Z]+\\=)");
+            if (parts.length < 7) {
+                throw new IllegalArgumentException("Block string does not contain the required parts.");
+            }
+
+            int index = Integer.parseInt(parts[0].split("=")[1]);
+            long timestamp = Long.parseLong(parts[1].split("=")[1]);
+            String prevHash = parts[2].split("=")[1].replace("'", "");
+            String nodeInfosString = parts[3].split("=")[1];
+            String voteInfosString = parts[4].split("=")[1];
+            String merkleRoot = parts[5].split("=")[1].replace("'", "");
+            String hash = parts[6].split("=")[1].replace("'", "").replace("}", "");
+
+            // Parse nodeInfos and voteInfos manually
+            FICBlock ficBlock = new FICBlock(blockString);
+            List<List<NodeInfo>> nodeInfos = ficBlock.getNodeInfos();
+            List<VoteInfo> voteInfos = ficBlock.getVoteInfos();
+
+            FICBlock newBlock = new FICBlock(index, nodeInfos, voteInfos, prevHash);
+
+            // Validate the chain before adding the new block
+            if (!validateChain()) {
+                throw new IllegalStateException("Invalid chain. Cannot add new block.");
+            }
+
+            chain.add(newBlock);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to parse block string: " + e.getMessage(), e);
+        }
     }
 
     // Validate the entire chain
@@ -68,7 +93,11 @@ public class FICBlockchain {
             currentBlock = chain.get(i);
             previousBlock = chain.get(i - 1);
 
-            // Check if the hash of the current block is valid
+            System.out.println("Validating Block #" + currentBlock.getIndex());
+            System.out.println("Current Block PrevHash: " + currentBlock.getPrevHash());
+            System.out.println("Previous Block Hash: " + previousBlock.getHash());
+
+            // Check if the current block's hash is valid
             if (!currentBlock.getHash().equals(currentBlock.calculateHash())) {
                 System.out.println("Invalid hash at block " + currentBlock.getIndex());
                 return false;
@@ -128,6 +157,19 @@ public class FICBlockchain {
         voteInfos.add(new VoteInfo("voter1", "candidate1", 1.0));
         blockchain.addBlock(nodeInfos, voteInfos);
 
+        // get the last block
+        FICBlock lastBlock = blockchain.getLastBlock();
+
+        // Add another block with string representation
+        String blockString = "FICBlock{index=" + (lastBlock.getIndex() + 1) + ", timestamp=" + System.currentTimeMillis() + ", prevHash='" + lastBlock.getHash() + "', nodeInfos=" + nodeInfos + ", voteInfos=" + voteInfos + ", merkleRoot='dummyMerkleRoot', hash='dummyHash'}";
+        blockchain.addBlock(blockString);
+
+        FICBlock lastBlock2 = blockchain.getLastBlock();
+
+        // Add another block with string representation
+        String blockString2 = "FICBlock{index=" + (lastBlock2.getIndex() + 1) + ", timestamp=" + System.currentTimeMillis() + ", prevHash='" + lastBlock2.getHash() + "', nodeInfos=" + nodeInfos + ", voteInfos=" + voteInfos + ", merkleRoot='dummyMerkleRoot', hash='dummyHash'}";
+        blockchain.addBlock(blockString2);
+
         // Print the blockchain
         blockchain.printBlockchain();
 
@@ -148,6 +190,14 @@ public class FICBlockchain {
             System.out.println("Found Block: " + foundBlock.getNodeInfos());
         } else {
             System.out.println("Block not found.");
+        }
+    }
+
+    public void replaceChain(List<FICBlock> chain) {
+        if (chain.size() > this.chain.size()) {
+            this.chain = chain;
+        } else {
+            System.out.println("Received chain is not longer than the current chain. Ignoring.");
         }
     }
 }

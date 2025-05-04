@@ -17,8 +17,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class Node {
-    private static final int MIN_PORT_RANGE = 8000;
-    private static final int MAX_PORT_RANGE = 8999;
+    private static int MIN_PORT_RANGE = 8000;
+    private static int MAX_PORT_RANGE = 8999;
 
     public ServerSocket serverSocket;
     private List<NodeInfo> nodeInfos = new ArrayList<>(); // List of nodes in the network
@@ -38,8 +38,8 @@ public class Node {
 
     int commitCount = 0; // Number of commits received
 
-    private FICBlockchain ficBlockchain = new FICBlockchain(); // Blockchain instance
-    private FTCBlockchain ftcBlockchain = new FTCBlockchain(); // Blockchain instance
+    private final FICBlockchain ficBlockchain = new FICBlockchain(); // Blockchain instance
+    private final FTCBlockchain ftcBlockchain = new FTCBlockchain(); // Blockchain instance
 
     public Node(String nodeId, int nodePort, double efficiencyScore, double reputationScore) {
         this.nodeId = nodeId;
@@ -132,7 +132,7 @@ public class Node {
         }
     }
 
-    private static NodeInfo getNodeInfo(int i) {
+    private NodeInfo getNodeInfo(int i) {
         try {
             Socket socket = new Socket("localhost", i);
 
@@ -201,8 +201,11 @@ public class Node {
         int leadersToSelect = Math.max(1, nodeInfos.size() / 5); // 10 nodes, 2 leaders
         Map<String, Double> voteCounts = new HashMap<>();
 
-        // Iterate through the voteInfos and calculate the total votes for each leader
-        for (VoteInfo voteInfo : voteInfos) {
+        // Use a copy of the voteInfos list to avoid concurrent modification
+        List<VoteInfo> voteInfosCopy = new ArrayList<>(voteInfos);
+
+        // Iterate through the copied list
+        for (VoteInfo voteInfo : voteInfosCopy) {
             String[] joinedNodeIds = voteInfo.getCandidateId().split(",");
             for (String nodeId : joinedNodeIds) {
                 voteCounts.put(nodeId, voteCounts.getOrDefault(nodeId, 0.0) + voteInfo.getVoteWeight());
@@ -224,8 +227,6 @@ public class Node {
                     .findFirst()
                     .ifPresent(leaders::add);
         }
-
-        System.out.println("Elected leaders: " + leaders.stream().map(NodeInfo::getNodeId).collect(Collectors.joining(", ")));
     }
 
     // Select the current leader based on index and track the past leaders
@@ -284,34 +285,27 @@ public class Node {
 
     // Create a new block and add it to the blockchain
     private void createBlock(String blockType) {
-        // Create a new block with parameters: index, nodeInfo, voteInfo, prevHash
-        FICBlock newBlock = new FICBlock(ficBlockchain.getChain().size(), groupedNodes, voteInfos, ficBlockchain.getLastBlock().getHash());
+        if (currentLeader != null && currentLeader.getNodeId().equals(nodeId)) {
+            // Log the hash of the last block
+            String lastBlockHash = ficBlockchain.getLastBlock().getHash();
+            System.out.println("==>Last Block Hash: " + lastBlockHash);
 
-        // Broadcast the new block to all leaders
-        String message = "PRE_PREPARE-" + newBlock;
-        broadcastMessage(message, leaders);
+            // Create the new block
+            FICBlock newBlock = new FICBlock(
+                    ficBlockchain.getChain().size(),
+                    groupedNodes,
+                    voteInfos,
+                    lastBlockHash // Ensure the correct prevHash is passed
+            );
+
+            // Log the new block's prevHash
+            System.out.println("==>New Block PrevHash: " + newBlock.getPrevHash());
+
+            // Broadcast the PRE_PREPARE message
+            String message = "PRE_PREPARE-" + newBlock;
+            broadcastMessage(message, leaders);
+        }
     }
-
-    // Consensus algorithm to add a block to the blockchain, FIC or FTC
-//    private void addBlockToBlockchain(String block, String blockchainType) {
-//        if (blockchainType.equals("FIC")) {
-//            try {
-//
-//
-//            } catch (Exception e) {
-//                System.err.println("Error adding block to FIC blockchain: " + e.getMessage());
-//            }
-//        } else if (blockchainType.equals("FTC")) {
-//            try {
-//
-//            } catch (Exception e) {
-//                System.err.println("Error adding block to FTC blockchain: " + e.getMessage());
-//            }
-//        }
-//
-//    }
-
-
 
     private void handleClientRequest(Socket clientSocket) {
         try (BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
@@ -341,63 +335,71 @@ public class Node {
             }
 
             if ("PRE_PREPARE".equals(reqParts[0])) {
-                String[] parts = request.split("-");
+                String[] parts = request.split("-", 2);
                 String block = parts[1];
-                // Phase 2: Prepare - leader sends vote to all leaders
+
+                // Skip if the PRE_PREPARE message is from the current leader
+                if (currentLeader != null && currentLeader.getNodeId().equals(nodeId)) {
+                    return;
+                }
+
+                // Phase 2: Prepare - leader sends block to all leaders
                 String vote = "PREPARE-" + block;
                 broadcastMessage(vote, leaders);
             }
 
             if ("PREPARE".equals(reqParts[0])) {
-                String[] parts = request.split("-");
+                String[] parts = request.split("-", 2);
                 String block = parts[1];
                 // Phase 3: Commit - leader sends commit to all leaders
                 String commit = "COMMIT-" + block;
-                // Broadcast commit message to current leaders
-                List<NodeInfo> currLeader = new ArrayList<>();
-                currLeader.add(currentLeader);
-                broadcastMessage(commit, currLeader);
+                // Broadcast commit message to all leaders except the current leader
+                List<NodeInfo> otherLeaders = leaders.stream()
+                        .filter(leader -> !leader.getNodeId().equals(nodeId))
+                        .collect(Collectors.toList());
+                broadcastMessage(commit, otherLeaders);
             }
 
             if ("COMMIT".equals(reqParts[0])) {
-                String[] parts = request.split("-");
+                String[] parts = request.split("-", 2);
                 String block = parts[1];
+
+                // Skip if the COMMIT message is from the current leader
+                if (currentLeader.getNodeId().equals(reqParts[1])) {
+                    return;
+                }
+
                 commitCount++;
 
-                // if our node is current leader and commit count is greater than 2/3 of the leaders, add the block to the blockchain
-                if (Objects.equals(currentLeader.getNodeId(), nodeId) && commitCount >= (leaders.size() * 2) / 3) {
-                    ficBlockchain.printBlockchain();
+                // If our node is the current leader and commit count is greater than 2/3 of the leaders, add the block to the blockchain
+                if (currentLeader.getNodeId().equals(nodeId) && (leaders.size() == 1 || commitCount >= (leaders.size() * 2) / 3)) {
                     commitCount = 0; // Reset commit count after adding block
 
                     // Broadcast the newly added block to all nodes
-                    String broadcastBlockMessage = "NEW_BLOCK-" + ficBlockchain.getChain().get(ficBlockchain.getChain().size() - 1).toString();
+                    String broadcastBlockMessage = "NEW_BLOCK-" + block;
                     broadcastMessage(broadcastBlockMessage, nodeInfos);
                 }
             }
 
-            if ("NEW_BLOCK".equals(reqParts[0])) {
-                String[] parts = request.split("-", 2);
-                String serializedBlock = parts[1];
-
-                if (currentLeader.getNodeId().equals(nodeId)) {
-                    return;
-                }
-
-                try {
-                    // Deserialize the block and add it to the local blockchain
-                    ficBlockchain.addBlock(serializedBlock);
-                    System.out.println("New block added to local FIC blockchain: " + nodeId);
-                } catch (Exception e) {
-                    System.err.println("Error at NEW_BLOCK: " + e.getMessage());
-                }
-            }
+           if ("NEW_BLOCK".equals(reqParts[0])) {
+               String serializedBlock = request.substring(request.indexOf("-") + 1); // Extract everything after "NEW_BLOCK-"
+               // Received req from
+               System.out.println("Received from: " + clientSocket.getInetAddress() + ":" + clientSocket.getPort());
+               try {
+                   ficBlockchain.addBlock(serializedBlock);
+                   System.out.println("New block added to the blockchain of: " + nodeId );
+               } catch (Exception e) {
+                   System.err.println("Error at NEW_BLOCK: " + e.getMessage());
+                   e.printStackTrace();
+               }
+           }
 
         } catch (Exception e) {
             System.err.println("Error handling client request: " + e.getMessage());
         }
     }
 
-    private static void broadcastMessage(String message, List<NodeInfo> nodeInfo) {
+    private void broadcastMessage(String message, List<NodeInfo> nodeInfo) {
         if (nodeInfo == null) {
             System.out.println("Node info is null. Cannot broadcast message.");
             return;
@@ -472,6 +474,10 @@ public class Node {
                 if (node.serverSocket != null && !node.serverSocket.isClosed()) {
                     node.serverSocket.close();
                 }
+
+                // Print final blockchain
+                System.out.println("Final Blockchain:");
+                node.ficBlockchain.printBlockchain();
             } catch (Exception e) {
                 System.err.println("Error while shutting down: " + e.getMessage());
             }
