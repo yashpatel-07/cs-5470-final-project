@@ -6,6 +6,7 @@ import blockchain.FTCBlock;
 import blockchain.FTCBlockchain;
 import models.NodeInfo;
 import models.VoteInfo;
+import utils.BlockUtil;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -61,11 +62,13 @@ public class Node {
                 long nextMinute = ((currentTime / 60000) + 1) * 60000;
                 long delay = nextMinute - currentTime;
 
+                System.out.println("[STEP-1] " + nodeId + " Waiting until the next minute..." + delay);
                 // Wait until the next minute
                 Thread.sleep(delay);
 
-                // we don't to run these two unless our leaders are done rotating
-                if (lastSelectedLeaderIndex == 0) {
+                // If leaders are not yet elected, start a new election
+                if (leaders == null || leaders.isEmpty()) {
+                    System.out.println("[NEW ELECTION] " + nodeId + " Starting new election...");
                     discoverNodes();
                     electLeader();
                     calculateVotes();
@@ -78,10 +81,16 @@ public class Node {
                     selectCurrentLeader();
                 }
 
-                // If our node is the current leader, it will perform node grouping
+                // If our node is the current leader, it first sends the current leader information to all nodes then creates a new block
                 if (currentLeader != null && currentLeader.getNodeId().equals(nodeId)) {
+
+                    // Send the current leader information to all nodes
+                    String message = "CURRENT_LEADER-" + currentLeader.getNodeId() + "-" + currentLeader.getNodePort() + "-" + currentLeader.getEfficiencyScore() + "-" + currentLeader.getReputationScore() + "-" + lastSelectedLeaderIndex;
+                    broadcastMessage(message, nodeInfos);
+
                     // Group nodes based on their efficiency and reputation scores
                     groupNodes();
+
                     // Create a new block and add it to the blockchain
                     createBlock("FIC");
                 }
@@ -98,8 +107,6 @@ public class Node {
             while (true) {
                 Socket clientSocket = serverSocket.accept();
                 new Thread(() -> handleClientRequest(clientSocket)).start();
-                // logging
-//                System.out.println("Accepted connection from: " + clientSocket.getInetAddress() + ":" + clientSocket.getPort());
             }
         } catch (Exception e) {
             System.err.println("Error starting server on port " + nodePort);
@@ -126,6 +133,9 @@ public class Node {
                 // Ignore exceptions for ports that are not open
             }
         }
+
+        System.out.println("[STEP-2] " + nodeId + " Discovered nodes size: " + nodeInfos.size());
+
         if (nodeInfos == null || nodeInfos.isEmpty()) {
             System.err.println("No nodes discovered.");
             return;
@@ -195,6 +205,8 @@ public class Node {
         // Send voting result to all nodes
         String message = "VOTING_RESULT-" + nodeId + "-" + voteWeight + "-" + leaders + "-" + joinedNodeIds;
         broadcastMessage(message, nodeInfos);
+
+        System.out.println("[STEP-3] " + nodeId + " Elected leaders: " + electedLeaders.stream().map(NodeInfo::getNodeId).collect(Collectors.joining(",")));
     }
 
     private void calculateVotes() {
@@ -227,84 +239,114 @@ public class Node {
                     .findFirst()
                     .ifPresent(leaders::add);
         }
+
+        System.out.println("[STEP-4] " + nodeId + " Calculated leaders: " + leaders.stream().map(NodeInfo::getNodeId).collect(Collectors.joining(",")));
     }
 
-    // Select the current leader based on index and track the past leaders
+    private int rotationCount = 0; // Tracks the number of rotations
+
     private void selectCurrentLeader() {
         if (leaders == null || leaders.isEmpty()) {
             System.err.println("No leaders to select from.");
             return;
         }
 
-        // Select the next leader in a round-robin fashion
-        lastSelectedLeaderIndex = (lastSelectedLeaderIndex + 1) % leaders.size(); // (0 + 1) % 2 = 1, (1 + 1) % 2 = 0
-        currentLeader = leaders.get(lastSelectedLeaderIndex);
-        System.out.println("Current leader selected: " + currentLeader.getNodeId() + " with port: " + currentLeader.getNodePort());
+        // Sort the leaders list by nodeId to ensure consistent order
+        leaders.sort(Comparator.comparing(NodeInfo::getNodeId));
+
+        // Select the current leader based on the rotation count
+        int leaderIndex = rotationCount % leaders.size();
+        currentLeader = leaders.get(leaderIndex);
+        System.out.println("[STEP-5] " + nodeId + " Current leader selected: " + currentLeader.getNodeId());
+
+        // Increment the rotation count and broadcast it
+        rotationCount++;
+        broadcastMessage("ROTATION_COUNT-" + rotationCount, nodeInfos);
+
+        // Clear leaders if all have been rotated
+        if (rotationCount > leaders.size()) {
+            System.out.println("[INFO] All leaders have been rotated. Clearing leaders list.");
+            leaders.clear();
+            currentLeader = null; // Clear the current leader
+            rotationCount = 0; // Reset rotation count
+            broadcastMessage("CLEAR_LEADERS", nodeInfos); // Notify other nodes
+        }
     }
 
     private void groupNodes() {
-        // Number of groups = leaders.size()
-        int noOfGroups = leaders.size(); // Number of groups to create = number of leaders
-        int groupSize = nodeInfos.size() / noOfGroups; // Size of each group = total nodes / number of groups
-        int remainingNodes = nodeInfos.size() % noOfGroups; // Remaining nodes after equal distribution
+        if (leaders == null || leaders.isEmpty()) {
+            System.err.println("[ERROR] Cannot group nodes as there are no leaders.");
+            return;
+        }
+
+        int noOfGroups = leaders.size(); // Number of groups = number of leaders
+        List<NodeInfo> nonLeaderNodes = nodeInfos.stream()
+                .filter(node -> !leaders.contains(node)) // Exclude leaders
+                .collect(Collectors.toList());
+
+        int groupSize = nonLeaderNodes.size() / noOfGroups; // Base size of each group
+        int remainingNodes = nonLeaderNodes.size() % noOfGroups; // Remaining nodes to distribute
         int startIndex = 0;
 
-        groupedNodes.clear(); // Clear previous groups to avoid accumulation
+        groupedNodes.clear(); // Clear previous groups
 
-        // Each leader will be responsible for a group of nodes
-        // Group1 will include leader1 and groupSize nodes
+        // Iterate through the leaders and assign nodes to their respective groups
         for (int i = 0; i < noOfGroups; i++) {
             List<NodeInfo> group = new ArrayList<>();
             group.add(leaders.get(i)); // Add the leader to the group
 
             // Calculate the end index for the current group
-            int endIndex = startIndex + groupSize;
+            int endIndex = startIndex + groupSize + (remainingNodes > 0 ? 1 : 0);
             if (remainingNodes > 0) {
-                endIndex++; // Distribute remaining nodes one by one
-                remainingNodes--;
+                remainingNodes--; // Distribute one extra node to this group
             }
 
             // Add nodes to the group
-            for (int j = startIndex; j < endIndex && j < nodeInfos.size(); j++) {
-                // Skip node if it is the leader
-                if (nodeInfos.get(j).getNodeId().equals(leaders.get(i).getNodeId())) {
-                    continue;
-                }
-                group.add(nodeInfos.get(j));
-            }
+            group.addAll(nonLeaderNodes.subList(startIndex, Math.min(endIndex, nonLeaderNodes.size())));
 
             groupedNodes.add(group); // Add the group to the list of groups
-            startIndex = endIndex; // Update start index for next group
+            startIndex = endIndex; // Update start index for the next group
         }
-        // Print the grouped nodes for debugging
-        System.out.println("Grouped nodes:");
-        for (List<NodeInfo> group : groupedNodes) {
-            System.out.println("Group: " + group.stream().map(NodeInfo::getNodeId).collect(Collectors.joining(", ")));
-        }
+
+        System.out.println("[STEP-6] " + nodeId + " Grouping done. ");
+
+        // Debugging: Print the grouped nodes
+//        for (List<NodeInfo> group : groupedNodes) {
+//            System.out.println("Group: " + group.stream().map(NodeInfo::getNodeId).collect(Collectors.joining(", ")));
+//        }
     }
 
     // Create a new block and add it to the blockchain
     private void createBlock(String blockType) {
-        if (currentLeader != null && currentLeader.getNodeId().equals(nodeId)) {
-            // Log the hash of the last block
-            String lastBlockHash = ficBlockchain.getLastBlock().getHash();
-            System.out.println("==>Last Block Hash: " + lastBlockHash);
+        String lastBlockHash = ficBlockchain.getLastBlock().getHash();
+        String index = String.valueOf(ficBlockchain.getChain().size());
+        long timestamp = System.currentTimeMillis();
+        String merkleRoot = BlockUtil.calculateMerkleRoot(groupedNodes, voteInfos);
+        String hash = BlockUtil.calculateBlockHash(Integer.parseInt(index), timestamp, lastBlockHash, merkleRoot);
 
-            // Create the new block
-            FICBlock newBlock = new FICBlock(
-                    ficBlockchain.getChain().size(),
-                    groupedNodes,
-                    voteInfos,
-                    lastBlockHash // Ensure the correct prevHash is passed
-            );
+        // Create a new block with the gathered information
+        FICBlock newBlock = new FICBlock(
+                Integer.parseInt(index),
+                timestamp,
+                groupedNodes,
+                voteInfos,
+                lastBlockHash,
+                merkleRoot,
+                hash
+        );
 
-            // Log the new block's prevHash
-            System.out.println("==>New Block PrevHash: " + newBlock.getPrevHash());
-
-            // Broadcast the PRE_PREPARE message
-            String message = "PRE_PREPARE-" + newBlock;
-            broadcastMessage(message, leaders);
+        // Add the new block to the blockchain
+        try {
+            ficBlockchain.addBlock(newBlock);
+        } catch (Exception e) {
+            System.err.println("Error adding block to blockchain: " + e.getMessage());
         }
+
+        // Broadcast the PRE_PREPARE message
+        String message = "PRE_PREPARE-" + newBlock;
+        broadcastMessage(message, leaders);
+        System.out.println("[STEP-7] " + nodeId + " Created new block: " + newBlock.getHash());
+        System.out.println("[PRE_PREPARE] " + nodeId + " Broadcasted PRE_PREPARE message to leaders: " + leaders.stream().map(NodeInfo::getNodeId).collect(Collectors.joining(",")));
     }
 
     private void handleClientRequest(Socket clientSocket) {
@@ -334,40 +376,74 @@ public class Node {
                 voteInfos.add(new VoteInfo(nodeId, joinedNodeIds, Double.parseDouble(voteWeight)));
             }
 
+            if ("CURRENT_LEADER".equals(reqParts[0])) {
+                String[] parts = request.split("-");
+                String leaderId = parts[1];
+                int leaderPort = Integer.parseInt(parts[2]);
+                double efficiencyScore = Double.parseDouble(parts[3]);
+                double reputationScore = Double.parseDouble(parts[4]);
+                lastSelectedLeaderIndex = Integer.parseInt(parts[5]);
+
+                // Skip if the response is from the current node
+                if (leaderId.equals(this.nodeId)) {
+                    return;
+                }
+
+                // Update the current leader and last selected leader index
+                currentLeader = new NodeInfo(leaderId, leaderPort, efficiencyScore, reputationScore);
+                lastSelectedLeaderIndex = Integer.parseInt(parts[5]);
+            }
+
+            if ("ROTATION_COUNT".equals(reqParts[0])) {
+                String[] parts = request.split("-");
+                int rotationCount = Integer.parseInt(parts[1]);
+
+                // Skip if the response is from the current node
+                if (currentLeader.getNodeId().equals(this.nodeId)) {
+                    return;
+                }
+
+                // Update the rotation count
+                this.rotationCount = rotationCount;
+            }
+
             if ("PRE_PREPARE".equals(reqParts[0])) {
                 String[] parts = request.split("-", 2);
                 String block = parts[1];
 
-                // Skip if the PRE_PREPARE message is from the current leader
-                if (currentLeader != null && currentLeader.getNodeId().equals(nodeId)) {
-                    return;
+                // Check if currentLeader is null
+                if (currentLeader == null || (currentLeader.getNodeId().equals(nodeId))) {
+                    return; // Skip processing if no leader is selected or the message is from the current leader
                 }
 
                 // Phase 2: Prepare - leader sends block to all leaders
                 String vote = "PREPARE-" + block;
                 broadcastMessage(vote, leaders);
+                System.out.println("[PREPARE] " + nodeId + " Received block from leader");
             }
 
             if ("PREPARE".equals(reqParts[0])) {
                 String[] parts = request.split("-", 2);
                 String block = parts[1];
+
+                // Check if currentLeader is null
+                if (currentLeader == null || (currentLeader.getNodeId().equals(nodeId))) {
+                    return; // Skip processing if no leader is selected or the message is from the current leader
+                }
+
                 // Phase 3: Commit - leader sends commit to all leaders
                 String commit = "COMMIT-" + block;
-                // Broadcast commit message to all leaders except the current leader
-                List<NodeInfo> otherLeaders = leaders.stream()
-                        .filter(leader -> !leader.getNodeId().equals(nodeId))
-                        .collect(Collectors.toList());
-                broadcastMessage(commit, otherLeaders);
+
+                // Send commit message only to the current leader
+                if (currentLeader != null && !currentLeader.getNodeId().equals(nodeId)) {
+                    broadcastMessage(commit, Collections.singletonList(currentLeader));
+                    System.out.println("[PREPARE & COMMIT] " + nodeId + " Received prepare message for block and broadcasted commit to current leader: " + currentLeader.getNodeId());
+                }
             }
 
             if ("COMMIT".equals(reqParts[0])) {
                 String[] parts = request.split("-", 2);
                 String block = parts[1];
-
-                // Skip if the COMMIT message is from the current leader
-                if (currentLeader.getNodeId().equals(reqParts[1])) {
-                    return;
-                }
 
                 commitCount++;
 
@@ -378,18 +454,29 @@ public class Node {
                     // Broadcast the newly added block to all nodes
                     String broadcastBlockMessage = "NEW_BLOCK-" + block;
                     broadcastMessage(broadcastBlockMessage, nodeInfos);
+                    System.out.println("[COMMIT] " + nodeId + " Recived all and broadcasted NEW_BLOCK message to all nodes");
                 }
             }
 
+            if ("CLEAR_LEADERS".equals(reqParts[0])) {
+                System.out.println("[INFO] " + nodeId + " Received request to clear leaders.");
+                leaders.clear(); // Clear the leaders list
+                currentLeader = null; // Clear the current leader
+            }
+
            if ("NEW_BLOCK".equals(reqParts[0])) {
+                // Skip if the NEW_BLOCK message is from the current leader
+                if (currentLeader.getNodeId().equals(nodeId)) {
+                     return;
+                }
+
                String serializedBlock = request.substring(request.indexOf("-") + 1); // Extract everything after "NEW_BLOCK-"
-               // Received req from
-               System.out.println("Received from: " + clientSocket.getInetAddress() + ":" + clientSocket.getPort());
                try {
                    ficBlockchain.addBlock(serializedBlock);
-                   System.out.println("New block added to the blockchain of: " + nodeId );
+                   FICBlock lastBlock = ficBlockchain.getLastBlock();
+                   System.out.println("[STEP-9] " + nodeId + " Received new block: " + lastBlock.getHash());
                } catch (Exception e) {
-                   System.err.println("Error at NEW_BLOCK: " + e.getMessage());
+                   System.err.println("Error at: " + nodeId + " Chain error: "+ e.getMessage());
                    e.printStackTrace();
                }
            }
@@ -460,8 +547,8 @@ public class Node {
         double efficiencyScore = Math.random();
         double reputationScore = Math.random();
 
-        // Make sure user1 has the highest efficiency and reputation scores
-        if (nodeId.equals("user1")) {
+        // Make sure user1 and user2 have the same efficiency and reputation scores
+        if (nodeId.equals("user1") || nodeId.equals("user2")) {
             efficiencyScore = 0.99;
             reputationScore = 0.99;
         }
@@ -475,9 +562,12 @@ public class Node {
                     node.serverSocket.close();
                 }
 
-                // Print final blockchain
-                System.out.println("Final Blockchain:");
-                node.ficBlockchain.printBlockchain();
+                // print the blockchain at the end if nodeId is user1 or user2
+                if (nodeId.equals("user1") || nodeId.equals("user2")) {
+                    System.out.println("Blockchain for " + nodeId + ":");
+                    node.ficBlockchain.printBlockchain();
+                }
+
             } catch (Exception e) {
                 System.err.println("Error while shutting down: " + e.getMessage());
             }

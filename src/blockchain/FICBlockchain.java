@@ -2,6 +2,8 @@ package blockchain;
 
 import models.NodeInfo;
 import models.VoteInfo;
+import node.Node;
+import utils.BlockUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,8 +22,6 @@ public class FICBlockchain {
     public FICBlockchain(String blockString) {
         this.chain = new ArrayList<>();
         createGenesisBlock();
-        System.out.println(blockString);
-//        addBlock(blockString);
     }
 
     private void createGenesisBlock() {
@@ -31,19 +31,31 @@ public class FICBlockchain {
         groupNodes.add(new NodeInfo("genesisNode2", 0, 100, 1.0)); // Example NodeInfo
         genesisNodeInfos.add(groupNodes); // Example NodeInfo
         List<VoteInfo> genesisVoteInfos = new ArrayList<>();
-        genesisVoteInfos.add(new VoteInfo("genesisVoter", "genesisCandidate", (int) System.currentTimeMillis())); // Example VoteInfo
-        FICBlock genesisBlock = new FICBlock(0, genesisNodeInfos, genesisVoteInfos, "0");
-        this.chain.add(genesisBlock);
+        genesisVoteInfos.add(new VoteInfo("genesisVoter", "genesisCandidate", 0));
+
+        int index = 0;
+        long timestamp = 0L;
+        String prevHash = "0";
+        String merkleRoot = BlockUtil.calculateMerkleRoot(genesisNodeInfos, genesisVoteInfos);
+        String hash = BlockUtil.calculateBlockHash(index, timestamp, prevHash, merkleRoot);
+
+        FICBlock genesisBlock = new FICBlock(index, timestamp, genesisNodeInfos, genesisVoteInfos, prevHash, merkleRoot, hash);
+        addBlock(genesisBlock);
     }
 
-    public void addBlock(List<List<NodeInfo>> nodeInfos, List<VoteInfo> voteInfos) {
-        FICBlock lastBlock = chain.get(chain.size() - 1);
-        FICBlock newBlock = new FICBlock(chain.size(), nodeInfos, voteInfos, lastBlock.getHash());
+    public void addBlock(FICBlock block) {
+        FICBlock lastBlock = getLastBlock();
+        String prevHash = lastBlock != null ? lastBlock.getHash() : "0";
+
+        if (prevHash != null && !prevHash.equals(block.getPrevHash())) {
+            throw new IllegalArgumentException("Previous hash does not match the last block's hash.");
+        }
+
         // Validate the chain before adding the new block
         if (!validateChain()) {
             throw new IllegalStateException("Invalid chain. Cannot add new block.");
         }
-        chain.add(newBlock);
+        chain.add(block);
     }
 
     public void addBlock(String blockString) {
@@ -52,7 +64,6 @@ public class FICBlockchain {
         }
 
         try {
-            // Split the string by ", " but handle nested structures manually
             String[] parts = blockString.split(", (?=[a-zA-Z]+\\=)");
             if (parts.length < 7) {
                 throw new IllegalArgumentException("Block string does not contain the required parts.");
@@ -66,19 +77,12 @@ public class FICBlockchain {
             String merkleRoot = parts[5].split("=")[1].replace("'", "");
             String hash = parts[6].split("=")[1].replace("'", "").replace("}", "");
 
-            // Parse nodeInfos and voteInfos manually
-            FICBlock ficBlock = new FICBlock(blockString);
-            List<List<NodeInfo>> nodeInfos = ficBlock.getNodeInfos();
-            List<VoteInfo> voteInfos = ficBlock.getVoteInfos();
+            List<List<NodeInfo>> nodeInfos =  BlockUtil.parseNodeInfos(nodeInfosString);
+            List<VoteInfo> voteInfos = BlockUtil.parseVoteInfos(voteInfosString);
 
-            FICBlock newBlock = new FICBlock(index, nodeInfos, voteInfos, prevHash);
+            FICBlock newBlock = new FICBlock(index, timestamp, nodeInfos, voteInfos, prevHash, merkleRoot, hash);
+            addBlock(newBlock);
 
-            // Validate the chain before adding the new block
-            if (!validateChain()) {
-                throw new IllegalStateException("Invalid chain. Cannot add new block.");
-            }
-
-            chain.add(newBlock);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to parse block string: " + e.getMessage(), e);
         }
@@ -93,12 +97,8 @@ public class FICBlockchain {
             currentBlock = chain.get(i);
             previousBlock = chain.get(i - 1);
 
-            System.out.println("Validating Block #" + currentBlock.getIndex());
-            System.out.println("Current Block PrevHash: " + currentBlock.getPrevHash());
-            System.out.println("Previous Block Hash: " + previousBlock.getHash());
-
             // Check if the current block's hash is valid
-            if (!currentBlock.getHash().equals(currentBlock.calculateHash())) {
+            if (!currentBlock.getHash().equals(BlockUtil.calculateBlockHash(currentBlock.getIndex(), currentBlock.getTimestamp(), currentBlock.getPrevHash(), currentBlock.getMerkleRoot()))) {
                 System.out.println("Invalid hash at block " + currentBlock.getIndex());
                 return false;
             }
@@ -116,10 +116,10 @@ public class FICBlockchain {
     // Print the entire blockchain
     public void printBlockchain() {
         for (FICBlock block : chain) {
-            System.out.println("Block #" + block.getIndex());
+            System.out.println("Block Index: " + block.getIndex());
             System.out.println("Timestamp: " + block.getTimestamp());
-            System.out.println("Node Infos: " + block.getNodeInfos().toString());
-            System.out.println("Vote Infos: " + block.getVoteInfos().toString());
+            System.out.println("Node Infos: " + block.getNodeInfos());
+            System.out.println("Vote Infos: " + block.getVoteInfos());
             System.out.println("Merkle Root: " + block.getMerkleRoot());
             System.out.println("Hash: " + block.getHash());
             System.out.println("Previous Hash: " + block.getPrevHash());
@@ -155,42 +155,46 @@ public class FICBlockchain {
         nodeInfos.add(groupNodes);
         List<VoteInfo> voteInfos = new ArrayList<>();
         voteInfos.add(new VoteInfo("voter1", "candidate1", 1.0));
-        blockchain.addBlock(nodeInfos, voteInfos);
+        String merkleRoot = BlockUtil.calculateMerkleRoot(nodeInfos, voteInfos);
+        String hash = BlockUtil.calculateBlockHash(1, System.currentTimeMillis(), blockchain.getLastBlock().getHash(), merkleRoot);
+        FICBlock block = new FICBlock(1, System.currentTimeMillis(), nodeInfos, voteInfos, blockchain.getLastBlock().getHash(), merkleRoot, hash);
+        blockchain.addBlock(block);
 
         // get the last block
         FICBlock lastBlock = blockchain.getLastBlock();
 
         // Add another block with string representation
-        String blockString = "FICBlock{index=" + (lastBlock.getIndex() + 1) + ", timestamp=" + System.currentTimeMillis() + ", prevHash='" + lastBlock.getHash() + "', nodeInfos=" + nodeInfos + ", voteInfos=" + voteInfos + ", merkleRoot='dummyMerkleRoot', hash='dummyHash'}";
+        String index = String.valueOf(lastBlock.getIndex() + 1);
+        String prevHash = lastBlock.getHash();
+        String nodeInfosString = nodeInfos.toString();
+        String voteInfosString = voteInfos.toString();
+        String merkleRootString = BlockUtil.calculateMerkleRoot(nodeInfos, voteInfos);
+        String hashString = BlockUtil.calculateBlockHash(lastBlock.getIndex() + 1, System.currentTimeMillis(), prevHash, merkleRootString);
+
+        String blockString = "{index=" + index + ", timestamp=" + System.currentTimeMillis() + ", prevHash='" + prevHash + "', nodeInfos=" + nodeInfosString + ", voteInfos=" + voteInfosString + ", merkleRoot='" + merkleRootString + "', hash='" + hashString + "'}";
         blockchain.addBlock(blockString);
-
-        FICBlock lastBlock2 = blockchain.getLastBlock();
-
-        // Add another block with string representation
-        String blockString2 = "FICBlock{index=" + (lastBlock2.getIndex() + 1) + ", timestamp=" + System.currentTimeMillis() + ", prevHash='" + lastBlock2.getHash() + "', nodeInfos=" + nodeInfos + ", voteInfos=" + voteInfos + ", merkleRoot='dummyMerkleRoot', hash='dummyHash'}";
-        blockchain.addBlock(blockString2);
 
         // Print the blockchain
         blockchain.printBlockchain();
 
         // Example of finding a block by index
-        int blockIndexToFind = 1;
-        FICBlock foundBlockByIndex = blockchain.getBlock(blockIndexToFind);
-        if (foundBlockByIndex != null) {
-            System.out.println("Found Block by Index: " + foundBlockByIndex.getNodeInfos());
-        } else {
-            System.out.println("Block not found.");
-        }
+//        int blockIndexToFind = 1;
+//        FICBlock foundBlockByIndex = blockchain.getBlock(blockIndexToFind);
+//        if (foundBlockByIndex != null) {
+//            System.out.println("Found Block by Index: " + foundBlockByIndex.getNodeInfos());
+//        } else {
+//            System.out.println("Block not found.");
+//        }
 
 
         // Example of finding a block by hash
-        String hashToFind = blockchain.getBlock(1).getHash();
-        FICBlock foundBlock = findBlock(blockchain, hashToFind);
-        if (foundBlock != null) {
-            System.out.println("Found Block: " + foundBlock.getNodeInfos());
-        } else {
-            System.out.println("Block not found.");
-        }
+//        String hashToFind = blockchain.getBlock(1).getHash();
+//        FICBlock foundBlock = findBlock(blockchain, hashToFind);
+//        if (foundBlock != null) {
+//            System.out.println("Found Block: " + foundBlock.getNodeInfos());
+//        } else {
+//            System.out.println("Block not found.");
+//        }
     }
 
     public void replaceChain(List<FICBlock> chain) {

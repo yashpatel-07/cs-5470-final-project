@@ -1,40 +1,52 @@
-package blockchain;
+package utils;
 
 import models.NodeInfo;
 import models.VoteInfo;
-import utils.HashUtil;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class FICBlock {
-    private final int index;
-    private final long timestamp;
-    private final String prevHash;
-    private final List<List<NodeInfo>> nodeInfos; // Information about nodes (efficiency, reputation)
-    private final List<VoteInfo> voteInfos; // Voting records for leadership selection
-    private final String merkleRoot; // Root of the Merkle tree of transactions
-    private final String hash;
+public class BlockUtil {
 
-    public FICBlock(int index, long timestamp, List<List<NodeInfo>> nodeInfos, List<VoteInfo> voteInfos, String prevHash, String merkleRoot, String hash) {
-        this.index = index;
-        this.timestamp = timestamp;
-        this.prevHash = prevHash;
-        this.nodeInfos = nodeInfos;
-        this.voteInfos = voteInfos;
-        this.merkleRoot = merkleRoot;
-        this.hash = hash;
+    public static String calculateMerkleRoot(List<List<NodeInfo>> nodeInfos, List<VoteInfo> voteInfos) {
+        List<String> transactions = new ArrayList<>();
+
+        for (List<NodeInfo> group : nodeInfos) {
+            for (NodeInfo node : group) {
+                transactions.add(node.toString());
+            }
+        }
+
+        for (VoteInfo vote : voteInfos) {
+            transactions.add(vote.toString());
+        }
+
+        while (transactions.size() > 1) {
+            List<String> newLevel = new ArrayList<>();
+            for (int i = 0; i < transactions.size(); i += 2) {
+                String left = transactions.get(i);
+                String right = (i + 1 < transactions.size()) ? transactions.get(i + 1) : left;
+                newLevel.add(HashUtil.generateSHA256(left + right));
+            }
+            transactions = newLevel;
+        }
+
+        return transactions.isEmpty() ? "" : transactions.get(0);
+    }
+
+    public static String calculateBlockHash(int index, long timestamp, String prevHash, String merkleRoot) {
+        String dataToHash = index + "|" + timestamp + "|" + prevHash + "|" + merkleRoot;
+        return HashUtil.generateSHA256(dataToHash);
     }
 
     // Expected nodeString format: [[{nodeId:'node1', nodePort:8080, efficiencyScore:95.0, reputationScore:0.9},{nodeId:'node2', nodePort:8081, efficiencyScore:90.0, reputationScore:0.8}]]
-    public List<List<NodeInfo>> parseNodeInfos(String nodeInfosString) {
+    public static List<List<NodeInfo>> parseNodeInfos(String nodeInfosString) {
         List<List<NodeInfo>> nodeInfos = new ArrayList<>();
 
         if (nodeInfosString == null || nodeInfosString.isEmpty()) {
             return nodeInfos;
         }
 
-        // nodeInfosString is a JSON-like array of arrays of NodeInfo objects
         String[] nodeGroups = nodeInfosString.replace("[[", "").replace("]]", "").split("],\\[");
         for (String group : nodeGroups) {
             List<NodeInfo> nodeGroup = new ArrayList<>();
@@ -54,7 +66,7 @@ public class FICBlock {
     }
 
     // Expected voteInfosString format: [{voterId:'voter1', candidateId:'candidate1', voteWeight:1.0},{voterId:'voter2', candidateId:'candidate2', voteWeight:1.0}]
-    public List<VoteInfo> parseVoteInfos(String voteInfosString) {
+    public static List<VoteInfo> parseVoteInfos(String voteInfosString) {
         List<VoteInfo> voteInfos = new ArrayList<>();
         if (voteInfosString == null || voteInfosString.isEmpty()) {
             return voteInfos;
@@ -72,44 +84,5 @@ public class FICBlock {
         return voteInfos;
     }
 
-    // Getters
-    public int getIndex() { return index;}
-
-    public long getTimestamp() {
-        return timestamp;
-    }
-
-    public String getPrevHash() {
-        return prevHash;
-    }
-
-    public List<List<NodeInfo>> getNodeInfos() {
-        return nodeInfos;
-    }
-
-    public List<VoteInfo> getVoteInfos() {
-        return voteInfos;
-    }
-
-    public String getMerkleRoot() {
-        return merkleRoot;
-    }
-
-    public String getHash() {
-        return hash;
-    }
-
-
-    @Override
-    public String toString() {
-        return "{" +
-                "index=" + index +
-                ", timestamp=" + timestamp +
-                ", prevHash='" + prevHash + '\'' +
-                ", nodeInfos=" + nodeInfos +
-                ", voteInfos=" + voteInfos +
-                ", merkleRoot='" + merkleRoot + '\'' +
-                ", hash='" + hash + '\'' +
-                '}';
-    }
 }
+
