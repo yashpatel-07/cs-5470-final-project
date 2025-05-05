@@ -18,20 +18,20 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class Node {
-    private static int MIN_PORT_RANGE = 8000;
-    private static int MAX_PORT_RANGE = 8999;
+    private static final int MIN_PORT_RANGE = 8000;
+    private static final int MAX_PORT_RANGE = 8999;
 
     public ServerSocket serverSocket;
-    private List<NodeInfo> nodeInfos = new ArrayList<>(); // List of nodes in the network
-    private List<NodeInfo> leaders = new ArrayList<>(); // List of elected leaders
-    private List<VoteInfo> voteInfos = new ArrayList<>(); // List of votes cast by nodes
+    private final List<NodeInfo> nodeInfos = new ArrayList<>(); // List of nodes in the network
+    private final List<NodeInfo> leaders = new ArrayList<>(); // List of elected leaders
+    private final List<VoteInfo> voteInfos = new ArrayList<>(); // List of votes cast by nodes
     private NodeInfo currentLeader; // Current leader of the network
-    private List<List<NodeInfo>> groupedNodes = new ArrayList<>(); // List of nodes grouped by their efficiency and reputation scores
+    private final List<List<NodeInfo>> groupedNodes = new ArrayList<>(); // List of nodes grouped by their efficiency and reputation scores
 
-    private String nodeId; // Unique identifier for the node, e.g., username
-    private int nodePort;
-    private double efficiencyScore;
-    private double reputationScore;
+    private final String nodeId; // Unique identifier for the node, e.g., username
+    private final int nodePort;
+    private final double efficiencyScore;
+    private final double reputationScore;
 
     double alpha = 0.5; // Weight for efficiency score
     double beta = 0.5; // Weight for reputation score
@@ -79,7 +79,7 @@ public class Node {
                 }
 
                 // If leaders are not yet elected, start a new election
-                if (leaders == null || leaders.isEmpty()) {
+                if (leaders.isEmpty()) {
                     System.out.println("[NEW ELECTION] " + nodeId + " Starting new election...");
                     discoverNodes();
                     electLeader();
@@ -148,12 +148,12 @@ public class Node {
             }
         }
 
-        System.out.println("[STEP-2] " + nodeId + " Discovered nodes size: " + nodeInfos.size());
-
-        if (nodeInfos == null || nodeInfos.isEmpty()) {
+        if (nodeInfos.isEmpty()) {
             System.err.println("No nodes discovered.");
             return;
         }
+
+        System.out.println("[STEP-2] " + nodeId + " Discovered nodes size: " + nodeInfos.size());
     }
 
     private NodeInfo getNodeInfo(int i) {
@@ -184,7 +184,7 @@ public class Node {
     }
 
     private void electLeader() {
-        if (nodeInfos == null || nodeInfos.isEmpty()) {
+        if (nodeInfos.isEmpty()) {
             System.err.println("No nodes to elect a leader from.");
             return;
         }
@@ -245,7 +245,7 @@ public class Node {
                 .sorted((e1, e2) -> Double.compare(e2.getValue(), e1.getValue()))
                 .limit(leadersToSelect)
                 .map(Map.Entry::getKey)
-                .collect(Collectors.toList());
+                .toList();
 
         // Add the top leaders to the leaders list
         leaders.clear();
@@ -260,7 +260,7 @@ public class Node {
     }
 
     private void selectCurrentLeader() {
-        if (leaders == null || leaders.isEmpty()) {
+        if (leaders.isEmpty()) {
             System.err.println("No leaders to select from.");
             return;
         }
@@ -292,7 +292,7 @@ public class Node {
     }
 
     private void groupNodes() {
-        if (leaders == null || leaders.isEmpty()) {
+        if (leaders.isEmpty()) {
             System.err.println("[ERROR] Cannot group nodes as there are no leaders.");
             return;
         }
@@ -300,7 +300,7 @@ public class Node {
         int noOfGroups = leaders.size(); // Number of groups = number of leaders
         List<NodeInfo> nonLeaderNodes = nodeInfos.stream()
                 .filter(node -> !leaders.contains(node)) // Exclude leaders
-                .collect(Collectors.toList());
+                .toList();
 
         int groupSize = nonLeaderNodes.size() / noOfGroups; // Base size of each group
         int remainingNodes = nonLeaderNodes.size() % noOfGroups; // Remaining nodes to distribute
@@ -327,11 +327,6 @@ public class Node {
         }
 
         System.out.println("[STEP-6] " + nodeId + " Grouping done. ");
-
-        // Debugging: Print the grouped nodes
-//        for (List<NodeInfo> group : groupedNodes) {
-//            System.out.println("Group: " + group.stream().map(NodeInfo::getNodeId).collect(Collectors.joining(", ")));
-//        }
     }
 
     // Create a new block and add it to the blockchain
@@ -478,7 +473,7 @@ public class Node {
                     // Broadcast the newly added block to all nodes
                     String broadcastBlockMessage = "NEW_BLOCK-" + block;
                     broadcastMessage(broadcastBlockMessage, nodeInfos);
-                    System.out.println("[COMMIT] " + nodeId + " Recived all and broadcasted NEW_BLOCK message to all nodes");
+                    System.out.println("[COMMIT] " + nodeId + " Received all and broadcasted NEW_BLOCK message to all nodes");
                 }
             }
 
