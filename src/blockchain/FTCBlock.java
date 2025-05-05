@@ -16,14 +16,14 @@ public class FTCBlock {
     private final String prevHash;
     private final String hash;
 
-    public FTCBlock(int index, FileInfo fileInfo, List<UserInfo> userInfos, List<Transaction> transactions, String prevHash) {
+    public FTCBlock(int index, long timestamp, FileInfo fileInfo, List<UserInfo> userInfos, List<Transaction> transactions, String prevHash, String hash) {
         this.index = index;
-        this.timestamp = System.currentTimeMillis();
+        this.timestamp = timestamp;
         this.fileInfo = fileInfo;
         this.userInfos = userInfos;
         this.transactions = transactions;
         this.prevHash = prevHash;
-        this.hash = calculateHash();
+        this.hash = hash;
     }
 
     // getters
@@ -55,8 +55,4 @@ public class FTCBlock {
         return fileInfo;
     }
 
-    public String calculateHash() {
-        String input = index + timestamp + fileInfo.toString() + userInfos.toString() + transactions.toString() + prevHash;
-        return HashUtil.generateSHA256(input);
-    }
 }

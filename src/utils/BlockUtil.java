@@ -1,7 +1,7 @@
 package utils;
 
-import models.NodeInfo;
-import models.VoteInfo;
+import blockchain.FTCBlock;
+import models.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +36,16 @@ public class BlockUtil {
 
     public static String calculateBlockHash(int index, long timestamp, String prevHash, String merkleRoot) {
         String dataToHash = index + "|" + timestamp + "|" + prevHash + "|" + merkleRoot;
+        return HashUtil.generateSHA256(dataToHash);
+    }
+
+    public static String calculateFTCBlockHash(int index, long timestamp, FileInfo fileInfo, UserInfo userInfo, Transaction transactions, String prevHash) {
+        // Assuming fileInfo, userInfo, and transactions have a proper toString() method
+        String fileInfoString = fileInfo != null ? fileInfo.toString() : "";
+        String userInfoString = userInfo != null ? userInfo.toString() : "";
+        String transactionsString = transactions != null ? transactions.toString() : "";
+
+        String dataToHash = index + "|" + timestamp + "|" + fileInfoString + "|" + userInfoString + "|" + transactionsString + "|" + prevHash;
         return HashUtil.generateSHA256(dataToHash);
     }
 

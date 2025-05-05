@@ -26,7 +26,6 @@ public class Node {
     private List<NodeInfo> leaders = new ArrayList<>(); // List of elected leaders
     private List<VoteInfo> voteInfos = new ArrayList<>(); // List of votes cast by nodes
     private NodeInfo currentLeader; // Current leader of the network
-    private int lastSelectedLeaderIndex = 0; // Index of the last selected leader
     private List<List<NodeInfo>> groupedNodes = new ArrayList<>(); // List of nodes grouped by their efficiency and reputation scores
 
     private String nodeId; // Unique identifier for the node, e.g., username
@@ -77,7 +76,8 @@ public class Node {
                 boolean isInLeaders = leaders.stream().anyMatch(nodeInfo -> nodeInfo.getNodeId().equals(nodeId));
 
                 // If our node is in the leaders list, it will take part in selecting the current leader
-                if (leaders != null && !leaders.isEmpty() && isInLeaders) {
+                if (isInLeaders) {
+                    // This is where we increment the rotation count
                     selectCurrentLeader();
                 }
 
@@ -85,14 +85,14 @@ public class Node {
                 if (currentLeader != null && currentLeader.getNodeId().equals(nodeId)) {
 
                     // Send the current leader information to all nodes
-                    String message = "CURRENT_LEADER-" + currentLeader.getNodeId() + "-" + currentLeader.getNodePort() + "-" + currentLeader.getEfficiencyScore() + "-" + currentLeader.getReputationScore() + "-" + lastSelectedLeaderIndex;
+                    String message = "CURRENT_LEADER-" + currentLeader.getNodeId() + "-" + currentLeader.getNodePort() + "-" + currentLeader.getEfficiencyScore() + "-" + currentLeader.getReputationScore();
                     broadcastMessage(message, nodeInfos);
 
                     // Group nodes based on their efficiency and reputation scores
                     groupNodes();
 
                     // Create a new block and add it to the blockchain
-                    createBlock("FIC");
+                    createFICBlock();
                 }
             } catch (InterruptedException ignored) {
             }
@@ -251,26 +251,30 @@ public class Node {
             return;
         }
 
+        // Clear leaders if all have been rotated
+        if (rotationCount >= leaders.size()) {
+            // Only current leader can broadcast the CLEAR_LEADERS message
+            if (!Objects.equals(currentLeader.getNodeId(), nodeId)) {
+                broadcastMessage("CLEAR_LEADERS", nodeInfos); // Notify other nodes
+            }
+            System.out.println("[INFO] All leaders have been rotated. Clearing leaders list.");
+            leaders.clear();
+            currentLeader = null; // Clear the current leader
+            rotationCount = 0; // Reset rotation count
+            return;
+        }
+
         // Sort the leaders list by nodeId to ensure consistent order
         leaders.sort(Comparator.comparing(NodeInfo::getNodeId));
 
         // Select the current leader based on the rotation count
-        int leaderIndex = rotationCount % leaders.size();
+        int leaderIndex = rotationCount % leaders.size(); // 0 % 2 = 0, 1 % 2 = 1
         currentLeader = leaders.get(leaderIndex);
         System.out.println("[STEP-5] " + nodeId + " Current leader selected: " + currentLeader.getNodeId());
 
         // Increment the rotation count and broadcast it
         rotationCount++;
         broadcastMessage("ROTATION_COUNT-" + rotationCount, nodeInfos);
-
-        // Clear leaders if all have been rotated
-        if (rotationCount > leaders.size()) {
-            System.out.println("[INFO] All leaders have been rotated. Clearing leaders list.");
-            leaders.clear();
-            currentLeader = null; // Clear the current leader
-            rotationCount = 0; // Reset rotation count
-            broadcastMessage("CLEAR_LEADERS", nodeInfos); // Notify other nodes
-        }
     }
 
     private void groupNodes() {
@@ -317,7 +321,7 @@ public class Node {
     }
 
     // Create a new block and add it to the blockchain
-    private void createBlock(String blockType) {
+    private void createFICBlock() {
         String lastBlockHash = ficBlockchain.getLastBlock().getHash();
         String index = String.valueOf(ficBlockchain.getChain().size());
         long timestamp = System.currentTimeMillis();
@@ -382,7 +386,6 @@ public class Node {
                 int leaderPort = Integer.parseInt(parts[2]);
                 double efficiencyScore = Double.parseDouble(parts[3]);
                 double reputationScore = Double.parseDouble(parts[4]);
-                lastSelectedLeaderIndex = Integer.parseInt(parts[5]);
 
                 // Skip if the response is from the current node
                 if (leaderId.equals(this.nodeId)) {
@@ -391,7 +394,6 @@ public class Node {
 
                 // Update the current leader and last selected leader index
                 currentLeader = new NodeInfo(leaderId, leaderPort, efficiencyScore, reputationScore);
-                lastSelectedLeaderIndex = Integer.parseInt(parts[5]);
             }
 
             if ("ROTATION_COUNT".equals(reqParts[0])) {
@@ -462,6 +464,7 @@ public class Node {
                 System.out.println("[INFO] " + nodeId + " Received request to clear leaders.");
                 leaders.clear(); // Clear the leaders list
                 currentLeader = null; // Clear the current leader
+                rotationCount = 0; // Reset rotation count
             }
 
            if ("NEW_BLOCK".equals(reqParts[0])) {
@@ -505,22 +508,29 @@ public class Node {
 
 
     // handle user input
-//    public static void handleUserInput() {
-//        Scanner scanner = new Scanner(System.in);
-//        System.out.println("Enter command (type 'help' for available commands):");
-//        while (true) {
-//            String command = scanner.nextLine();
-//            if (command.equalsIgnoreCase("exit")) {
-//                System.out.println("Exiting...");
-//                break;
-//            } else if (command.equalsIgnoreCase("help")) {
-//                System.out.println("Available commands:");
-//                System.out.println("1. broadcast - Broadcast a message to all nodes");
-//            } else {
-//                System.out.println("Unknown command. Type 'help' for available commands.");
-//            }
-//        }
-//    }
+    public static void handleUserInput() {
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("Enter command (type 'help' for available commands):");
+        while (true) {
+            String input = scanner.nextLine();
+            String[] parts = input.split(" ");
+
+            String command = parts[0].toLowerCase();
+
+            switch (command) {
+                case "help":
+                    System.out.println("Available commands:");
+                    System.out.println("1. help - Show available commands");
+                    System.out.println("2. exit - Exit the program");
+                    break;
+                case "exit":
+                    System.out.println("Exiting...");
+                    System.exit(0);
+                    break;
+            }
+
+        }
+    }
 
 
     public static void main(String[] args) {
