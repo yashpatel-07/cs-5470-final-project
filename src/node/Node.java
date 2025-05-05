@@ -36,7 +36,8 @@ public class Node {
     double alpha = 0.5; // Weight for efficiency score
     double beta = 0.5; // Weight for reputation score
 
-    int commitCount = 0; // Number of commits received
+    private int commitCount = 0; // Number of commits received
+    private int rotationCount = 0; // Tracks the number of rotations
 
     private final FICBlockchain ficBlockchain = new FICBlockchain(); // Blockchain instance
     private final FTCBlockchain ftcBlockchain = new FTCBlockchain(); // Blockchain instance
@@ -53,6 +54,9 @@ public class Node {
         // Run the server in a separate thread
         new Thread(this::startServer).start();
 
+        // Run handler for user input in a separate thread
+//        new Thread(Node::handleUserInput).start();
+
         // Start node discovery and election process
         while (true) {
             try {
@@ -64,6 +68,15 @@ public class Node {
                 System.out.println("[STEP-1] " + nodeId + " Waiting until the next minute..." + delay);
                 // Wait until the next minute
                 Thread.sleep(delay);
+
+                // This logic wll determine if NEW_ELECTION will be started
+                // If rotationCount is 0 or greater than the number of leaders, it means all leaders have been rotated
+                if (rotationCount == 0 || rotationCount >= leaders.size()) {
+                    System.out.println("[INFO] All leaders have been rotated. Starting new election.");
+                    leaders.clear(); // Clear the leaders list
+                    currentLeader = null; // Clear the current leader
+                    rotationCount = 0; // Reset rotation count
+                }
 
                 // If leaders are not yet elected, start a new election
                 if (leaders == null || leaders.isEmpty()) {
@@ -116,6 +129,7 @@ public class Node {
 
     private void discoverNodes() {
         nodeInfos.clear();
+        voteInfos.clear();
         nodeInfos.add(new NodeInfo(nodeId, nodePort, efficiencyScore, reputationScore));
 
         for (int i = MIN_PORT_RANGE; i <= MAX_PORT_RANGE; i++) {
@@ -204,8 +218,10 @@ public class Node {
 
         // Send voting result to all nodes
         String message = "VOTING_RESULT-" + nodeId + "-" + voteWeight + "-" + leaders + "-" + joinedNodeIds;
-        broadcastMessage(message, nodeInfos);
-
+        // Exclude the current node from the broadcast
+        List<NodeInfo> nodesToBroadcast = new ArrayList<>(nodeInfos);
+        nodesToBroadcast.removeIf(nodeInfo -> nodeInfo.getNodeId().equals(nodeId));
+        broadcastMessage(message, nodesToBroadcast);
         System.out.println("[STEP-3] " + nodeId + " Elected leaders: " + electedLeaders.stream().map(NodeInfo::getNodeId).collect(Collectors.joining(",")));
     }
 
@@ -243,8 +259,6 @@ public class Node {
         System.out.println("[STEP-4] " + nodeId + " Calculated leaders: " + leaders.stream().map(NodeInfo::getNodeId).collect(Collectors.joining(",")));
     }
 
-    private int rotationCount = 0; // Tracks the number of rotations
-
     private void selectCurrentLeader() {
         if (leaders == null || leaders.isEmpty()) {
             System.err.println("No leaders to select from.");
@@ -252,17 +266,17 @@ public class Node {
         }
 
         // Clear leaders if all have been rotated
-        if (rotationCount >= leaders.size()) {
-            // Only current leader can broadcast the RESET message
-            if (!Objects.equals(currentLeader.getNodeId(), nodeId)) {
-                broadcastMessage("RESET", nodeInfos); // Notify other nodes
-            }
-            System.out.println("[INFO] All leaders have been rotated. Clearing leaders list.");
-            leaders.clear();
-            currentLeader = null; // Clear the current leader
-            rotationCount = 0; // Reset rotation count
-            return;
-        }
+//        if (rotationCount >= leaders.size()) {
+//            // Only current leader can broadcast the RESET message
+//            if (!Objects.equals(currentLeader.getNodeId(), nodeId)) {
+//                broadcastMessage("RESET", nodeInfos); // Notify other nodes
+//            }
+//            System.out.println("[INFO] All leaders have been rotated. Clearing leaders list.");
+//            leaders.clear();
+//            currentLeader = null; // Clear the current leader
+//            rotationCount = 0; // Reset rotation count
+//            return;
+//        }
 
         // Sort the leaders list by nodeId to ensure consistent order
         leaders.sort(Comparator.comparing(NodeInfo::getNodeId));
@@ -376,6 +390,14 @@ public class Node {
                     return;
                 }
 
+                // Check for duplicate votes
+                for (VoteInfo voteInfo : voteInfos) {
+                    if (voteInfo.getVoterId().equals(nodeId) && voteInfo.getVoteWeight() == Double.parseDouble(voteWeight)) {
+                        System.out.println("[INFO] Duplicate vote detected from node: " + nodeId);
+                        return;
+                    }
+                }
+
                 // Add the received vote to the vote list
                 voteInfos.add(new VoteInfo(nodeId, joinedNodeIds, Double.parseDouble(voteWeight)));
             }
@@ -401,7 +423,7 @@ public class Node {
                 int rotationCount = Integer.parseInt(parts[1]);
 
                 // Skip if the response is from the current node
-                if (currentLeader.getNodeId().equals(this.nodeId)) {
+                if (currentLeader == null || currentLeader.getNodeId().equals(this.nodeId)) {
                     return;
                 }
 
@@ -512,6 +534,10 @@ public class Node {
         Scanner scanner = new Scanner(System.in);
         System.out.println("Enter command (type 'help' for available commands):");
         while (true) {
+            if (!scanner.hasNextLine()) {
+                continue;
+            }
+
             String input = scanner.nextLine();
             String[] parts = input.split(" ");
 
@@ -526,6 +552,9 @@ public class Node {
                 case "exit":
                     System.out.println("Exiting...");
                     System.exit(0);
+                    break;
+                default:
+                    System.out.println("Unknown command: " + command);
                     break;
             }
 
