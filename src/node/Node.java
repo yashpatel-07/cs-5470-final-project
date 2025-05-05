@@ -253,9 +253,9 @@ public class Node {
 
         // Clear leaders if all have been rotated
         if (rotationCount >= leaders.size()) {
-            // Only current leader can broadcast the CLEAR_LEADERS message
+            // Only current leader can broadcast the RESET message
             if (!Objects.equals(currentLeader.getNodeId(), nodeId)) {
-                broadcastMessage("CLEAR_LEADERS", nodeInfos); // Notify other nodes
+                broadcastMessage("RESET", nodeInfos); // Notify other nodes
             }
             System.out.println("[INFO] All leaders have been rotated. Clearing leaders list.");
             leaders.clear();
@@ -460,8 +460,8 @@ public class Node {
                 }
             }
 
-            if ("CLEAR_LEADERS".equals(reqParts[0])) {
-                System.out.println("[INFO] " + nodeId + " Received request to clear leaders.");
+            if ("RESET".equals(reqParts[0])) {
+                System.out.println("[INFO] " + nodeId + " Received request to reset.");
                 leaders.clear(); // Clear the leaders list
                 currentLeader = null; // Clear the current leader
                 rotationCount = 0; // Reset rotation count
