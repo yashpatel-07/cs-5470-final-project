@@ -1,5 +1,6 @@
 package blockchain;
 
+import com.google.gson.Gson;
 import models.FileInfo;
 import models.Transaction;
 import models.UserInfo;
@@ -12,11 +13,11 @@ public class FTCBlock {
     private final long timestamp;
     private final FileInfo fileInfo; // Details about the file
     private final List<UserInfo> userInfos; // List of users associated with the file
-    private final List<Transaction> transactions;
+    private final Transaction transactions;
     private final String prevHash;
     private final String hash;
 
-    public FTCBlock(int index, long timestamp, FileInfo fileInfo, List<UserInfo> userInfos, List<Transaction> transactions, String prevHash, String hash) {
+    public FTCBlock(int index, long timestamp, FileInfo fileInfo, List<UserInfo> userInfos, Transaction transactions, String prevHash, String hash) {
         this.index = index;
         this.timestamp = timestamp;
         this.fileInfo = fileInfo;
@@ -47,12 +48,17 @@ public class FTCBlock {
         return userInfos;
     }
 
-    public List<Transaction> getTransactions() {
+    public Transaction getTransactions() {
         return transactions;
     }
 
     public FileInfo getFileInfo() {
         return fileInfo;
+    }
+
+    @Override
+    public String toString() {
+        return new Gson().toJson(this);
     }
 
 }

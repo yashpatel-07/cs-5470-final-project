@@ -1,10 +1,9 @@
 package blockchain;
 
+import com.google.gson.Gson;
 import models.NodeInfo;
 import models.VoteInfo;
-import utils.HashUtil;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class FICBlock {
@@ -24,52 +23,6 @@ public class FICBlock {
         this.voteInfos = voteInfos;
         this.merkleRoot = merkleRoot;
         this.hash = hash;
-    }
-
-    // Expected nodeString format: [[{nodeId:'node1', nodePort:8080, efficiencyScore:95.0, reputationScore:0.9},{nodeId:'node2', nodePort:8081, efficiencyScore:90.0, reputationScore:0.8}]]
-    public List<List<NodeInfo>> parseNodeInfos(String nodeInfosString) {
-        List<List<NodeInfo>> nodeInfos = new ArrayList<>();
-
-        if (nodeInfosString == null || nodeInfosString.isEmpty()) {
-            return nodeInfos;
-        }
-
-        // nodeInfosString is a JSON-like array of arrays of NodeInfo objects
-        String[] nodeGroups = nodeInfosString.replace("[[", "").replace("]]", "").split("],\\[");
-        for (String group : nodeGroups) {
-            List<NodeInfo> nodeGroup = new ArrayList<>();
-            String[] nodes = group.split("},");
-            for (String node : nodes) {
-                node = node.endsWith("}") ? node : node + "}";
-                String nodeId = node.split("\"nodeId\":\"")[1].split("\"")[0];
-                int nodePort = Integer.parseInt(node.split("\"nodePort\":")[1].split(",")[0]);
-                double efficiencyScore = Double.parseDouble(node.split("\"efficiencyScore\":")[1].split(",")[0]);
-                double reputationScore = Double.parseDouble(node.split("\"reputationScore\":")[1].split("}")[0]);
-                nodeGroup.add(new NodeInfo(nodeId, nodePort, efficiencyScore, reputationScore));
-            }
-            nodeInfos.add(nodeGroup);
-        }
-
-        return nodeInfos;
-    }
-
-    // Expected voteInfosString format: [{voterId:'voter1', candidateId:'candidate1', voteWeight:1.0},{voterId:'voter2', candidateId:'candidate2', voteWeight:1.0}]
-    public List<VoteInfo> parseVoteInfos(String voteInfosString) {
-        List<VoteInfo> voteInfos = new ArrayList<>();
-        if (voteInfosString == null || voteInfosString.isEmpty()) {
-            return voteInfos;
-        }
-
-        // Assuming voteInfosString is a JSON-like array of VoteInfo objects
-        String[] votes = voteInfosString.replace("[", "").replace("]", "").split("},");
-        for (String vote : votes) {
-            vote = vote.endsWith("}") ? vote : vote + "}";
-            String nodeId = vote.split("\"voterId\":\"")[1].split("\"")[0];
-            String joinedNodeIds = vote.split("\"candidateId\":\"")[1].split("\"")[0];
-            double voteWeight = Double.parseDouble(vote.split("\"voteWeight\":")[1].split("}")[0]);
-            voteInfos.add(new VoteInfo(nodeId, joinedNodeIds, voteWeight));
-        }
-        return voteInfos;
     }
 
     // Getters
@@ -95,21 +48,11 @@ public class FICBlock {
         return merkleRoot;
     }
 
-    public String getHash() {
-        return hash;
-    }
-
+    public String getHash() { return hash; }
 
     @Override
     public String toString() {
-        return "{" +
-                "index=" + index +
-                ", timestamp=" + timestamp +
-                ", prevHash='" + prevHash + '\'' +
-                ", nodeInfos=" + nodeInfos +
-                ", voteInfos=" + voteInfos +
-                ", merkleRoot='" + merkleRoot + '\'' +
-                ", hash='" + hash + '\'' +
-                '}';
+        return new Gson().toJson(this);
     }
+
 }

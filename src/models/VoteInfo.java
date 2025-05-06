@@ -1,5 +1,7 @@
 package models;
 
+import com.google.gson.Gson;
+
 public class VoteInfo {
     private String voterId;
     private String candidateId;
@@ -11,13 +13,18 @@ public class VoteInfo {
         this.voteWeight = voteWeight;
     }
 
+//    @Override
+//    public String toString() {
+//        return "{" +
+//                "\"voterId\":\"" + voterId + "\"," +
+//                "\"candidateId\":\"" + candidateId + "\"," +
+//                "\"voteWeight\":" + voteWeight +
+//                "}";
+//    }
+
     @Override
     public String toString() {
-        return "{" +
-                "\"voterId\":\"" + voterId + "\"," +
-                "\"candidateId\":\"" + candidateId + "\"," +
-                "\"voteWeight\":" + voteWeight +
-                "}";
+        return new Gson().toJson(this);
     }
 
     // Getters and Setters

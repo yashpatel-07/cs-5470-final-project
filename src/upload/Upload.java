@@ -2,6 +2,7 @@ package upload;
 
 import fernet.FernetKeyPair;
 import fernet.KeyGenerator;
+import models.NodeInfo;
 import models.Transaction;
 import rsa.EncryptDecrypt;
 import utils.IPFSUtil;
@@ -20,11 +21,11 @@ public class Upload {
      * Uploads a file to IPFS, encrypts it with a Fernet key, and creates a transaction.
      *
      * @param filePath The path to the file to be uploaded.
-     * @param username The username of the user uploading the file.
+     * @param node The node information containing NodeId and NodePort.
      * @return A Transaction object containing details about the upload.
      * @throws Exception If any error occurs during the process.
      */
-    public static Transaction upload(String filePath, String username) throws Exception {
+    public static Transaction upload(String filePath, NodeInfo node) throws Exception {
 
         // If fileName is not provided, fall back to the default
         String fileName;
@@ -67,7 +68,7 @@ public class Upload {
 
         // STEP 3: ENCRYPT FERNET KEY (FILE KEY) WITH USER'S PUBLIC KEY
         BigInteger eFileKey;
-        String fileContent = Files.readString(Paths.get("keys/" + username + ".txt"));
+        String fileContent = Files.readString(Paths.get("keys/" + node.getNodeId() + ".txt"));
 
         String pubKey = fileContent.lines()
                 .filter(line -> line.startsWith("publicKey="))
@@ -105,16 +106,19 @@ public class Upload {
         }
 
         // STEP 5: CREATE A TRANSACTION
-        Transaction transaction = new Transaction(
-                pubKey.split("=")[1],
-                "none",
-                fileHash,
-                eFileKey.toString(),
-                System.currentTimeMillis(),
-                "upload",
-                "",
-                "none"
-        );
+        NodeInfo sender = node;
+        NodeInfo receiver = null;
+        String bFileName = fileName;
+        String bFileHash = fileHash;
+        String bSenderPublicKey = pubKey.split("=")[1];
+        String bReceiverPublicKey = null;
+        String bEncryptedFileKey = eFileKey.toString();
+        String bTransactionType = "upload";
+        String bCreatorSign = null;
+        String bValidatorSign = null;
+        Transaction transaction = new Transaction(sender, receiver, bFileName, bFileHash, bSenderPublicKey, bReceiverPublicKey,
+                bEncryptedFileKey, bTransactionType, bCreatorSign, bValidatorSign);
+
         System.out.println("STEP 5: SUCCESS");
 
         // STEP 6: SIGN TRANSACTION WITH USER'S PRIVATE KEY
@@ -133,7 +137,7 @@ public class Upload {
 
             // Convert signedTransaction to string and set it in the transaction
             transaction.setCreatorSign(signedTransaction.toString());
-            System.out.println("STEP 6: SUCCESS creatorsSign: " + transaction.getCreatorSign());
+            System.out.println("STEP 6: SUCCESS creatorsSign");
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to sign the transaction: " + e.getMessage(), e);
@@ -153,7 +157,9 @@ public class Upload {
             filePath = args[0];
         }
 
-        Transaction transaction = upload(filePath,"user1");
+        NodeInfo dummyNode = new NodeInfo("user1", 8000, 0, 0);
+
+        Transaction transaction = upload(filePath, dummyNode);
         System.out.println("Created Transaction: " + transaction);
     }
 }

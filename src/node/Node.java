@@ -4,8 +4,8 @@ import blockchain.FICBlock;
 import blockchain.FICBlockchain;
 import blockchain.FTCBlock;
 import blockchain.FTCBlockchain;
-import models.NodeInfo;
-import models.VoteInfo;
+import models.*;
+import upload.Upload;
 import utils.BlockUtil;
 
 import java.io.BufferedReader;
@@ -55,7 +55,7 @@ public class Node {
         new Thread(this::startServer).start();
 
         // Run handler for user input in a separate thread
-//        new Thread(Node::handleUserInput).start();
+        new Thread(this::handleUserInput).start();
 
         // Start node discovery and election process
         while (true) {
@@ -71,7 +71,7 @@ public class Node {
 
                 // This logic wll determine if NEW_ELECTION will be started
                 // If rotationCount is 0 or greater than the number of leaders, it means all leaders have been rotated
-                if (rotationCount == 0 || rotationCount >= leaders.size()) {
+                if ((rotationCount == 0 || rotationCount >= leaders.size()) & currentLeader != null) {
                     System.out.println("[INFO] All leaders have been rotated. Starting new election.");
                     leaders.clear(); // Clear the leaders list
                     currentLeader = null; // Clear the current leader
@@ -335,7 +335,7 @@ public class Node {
         String index = String.valueOf(ficBlockchain.getChain().size());
         long timestamp = System.currentTimeMillis();
         String merkleRoot = BlockUtil.calculateMerkleRoot(groupedNodes, voteInfos);
-        String hash = BlockUtil.calculateBlockHash(Integer.parseInt(index), timestamp, lastBlockHash, merkleRoot);
+        String hash = BlockUtil.calculateFICBlockHash(Integer.parseInt(index), timestamp, lastBlockHash, merkleRoot);
 
         // Create a new block with the gathered information
         FICBlock newBlock = new FICBlock(
@@ -360,6 +360,46 @@ public class Node {
         broadcastMessage(message, leaders);
         System.out.println("[STEP-7] " + nodeId + " Created new block: " + newBlock.getHash());
         System.out.println("[PRE_PREPARE] " + nodeId + " Broadcasted PRE_PREPARE message to leaders: " + leaders.stream().map(NodeInfo::getNodeId).collect(Collectors.joining(",")));
+    }
+
+    private void createFTCBlock(Transaction transaction) {
+        String lastBlockHash = ftcBlockchain.getLastBlock().getHash();
+        int index = ftcBlockchain.getChain().size();
+        long timestamp = System.currentTimeMillis();
+        String fileName = transaction.getFileName();
+        String fileHash = transaction.getFileHash();
+        String encryptedFileKey = transaction.getEncryptedFileKey();
+        FileInfo fileInfo = new FileInfo(fileName, fileHash, encryptedFileKey);
+        String sendersPublicKey = transaction.getSenderPublicKey();
+        String receiversPublicKey = transaction.getReceiverPublicKey();
+
+        NodeInfo senderNode = transaction.getSender();
+        NodeInfo receiverNode = transaction.getReceiver();
+        List<UserInfo> userInfos = new ArrayList<>();
+        userInfos.add(new UserInfo(sendersPublicKey, encryptedFileKey));
+        userInfos.add(new UserInfo(receiversPublicKey, encryptedFileKey));
+
+        String hash = BlockUtil.calculateFTCBlockHash(index, timestamp, fileInfo, userInfos, transaction, lastBlockHash);
+
+        // Create a new block with the gathered information
+        FTCBlock newBlock = new FTCBlock(index, timestamp, fileInfo, userInfos, transaction, lastBlockHash, hash);
+
+        // Add the new block to the blockchain
+        try {
+            ftcBlockchain.addBlock(newBlock);
+        } catch (Exception e) {
+            System.err.println("Error adding block to blockchain: " + e.getMessage());
+        }
+
+        // Broadcast the PRE_PREPARE message
+        String message = "UPLOAD_PRE_PREPARE-" + newBlock;
+        List<NodeInfo> currLeader = groupedNodes.stream()
+                .flatMap(List::stream)
+                .filter(node -> node.getNodeId().equals(currentLeader.getNodeId()))
+                .collect(Collectors.toList());
+        broadcastMessage(message, currLeader);
+        System.out.println("[UPLOAD-STEP-1] " + nodeId + " Created new block: " + newBlock.getHash());
+        System.out.println("[UPLOAD_PRE_PREPARE] " + nodeId + " Broadcasted PRE_PREPARE message to current leader: " + currentLeader.getNodeId());
     }
 
     private void handleClientRequest(Socket clientSocket) {
@@ -411,6 +451,7 @@ public class Node {
 
                 // Update the current leader and last selected leader index
                 currentLeader = new NodeInfo(leaderId, leaderPort, efficiencyScore, reputationScore);
+                System.out.println("[CURRENT_LEADER] Updated leader to: " + currentLeader.getNodeId());
             }
 
             if ("ROTATION_COUNT".equals(reqParts[0])) {
@@ -422,8 +463,10 @@ public class Node {
                     return;
                 }
 
-                // Update the rotation count
-                this.rotationCount = rotationCount;
+                // Works but fails on second round
+                if (rotationCount > this.rotationCount) {
+                    this.rotationCount = rotationCount;
+                }
             }
 
             if ("PRE_PREPARE".equals(reqParts[0])) {
@@ -484,7 +527,7 @@ public class Node {
                 rotationCount = 0; // Reset rotation count
             }
 
-           if ("NEW_BLOCK".equals(reqParts[0])) {
+            if ("NEW_BLOCK".equals(reqParts[0])) {
                 // Skip if the NEW_BLOCK message is from the current leader
                 if (currentLeader.getNodeId().equals(nodeId)) {
                      return;
@@ -500,6 +543,86 @@ public class Node {
                    e.printStackTrace();
                }
            }
+
+            if ("UPLOAD_PRE_PREPARE".equals(reqParts[0])) {
+                String[] parts = request.split("-", 2);
+                String block = parts[1];
+
+                // Only process if current node is the current leader
+                if (currentLeader == null || !currentLeader.getNodeId().equals(nodeId)) {
+                    return; // Skip if there's no leader or this node is NOT the leader
+                }
+
+                // Current leader decides to send PREPARE_UPLOAD message to group it is leading
+                String message = "UPLOAD_PREPARE-" + block;
+                // Find the group current leader is leading
+                List<NodeInfo> group = groupedNodes.stream()
+                        .filter(g -> g.get(0).getNodeId().equals(currentLeader.getNodeId()))
+                        .findFirst()
+                        .orElse(Collections.emptyList());
+                // Send PREPARE_UPLOAD message to the group
+                broadcastMessage(message, group);
+
+                System.out.println("[UPLOAD_PREPARE] " + nodeId + " Received block from node and broadcasted PREPARE_UPLOAD message to the group" );
+            }
+
+            if ("UPLOAD_PREPARE".equals(reqParts[0])) {
+                String[] parts = request.split("-", 2);
+                String block = parts[1];
+
+                // Check if currentLeader is null
+                if (currentLeader == null || (currentLeader.getNodeId().equals(nodeId))) {
+                    return; // Skip processing if no leader is selected or the message is from the current leader
+                }
+
+                // Phase 3: Commit - leader sends commit to all leaders
+                String commit = "UPLOAD_COMMIT-" + block;
+
+                // Send commit message only to the current leader
+                if (currentLeader != null && !currentLeader.getNodeId().equals(nodeId)) {
+                    broadcastMessage(commit, Collections.singletonList(currentLeader));
+                    System.out.println("[PREPARE & UPLOAD_COMMIT] " + nodeId + " Received prepare message for block and broadcasted commit to current leader: " + currentLeader.getNodeId());
+                }
+            }
+
+            if ("UPLOAD_COMMIT".equals(reqParts[0])) {
+                String[] parts = request.split("-", 2);
+                String block = parts[1];
+
+                commitCount++;
+
+                // If our node is the current leader and commit count is greater than 2/3 of the group size participating in the upload, add the block to the blockchain
+                int groupSize = groupedNodes.stream()
+                        .filter(g -> g.get(0).getNodeId().equals(currentLeader.getNodeId()))
+                        .findFirst()
+                        .orElse(Collections.emptyList())
+                        .size();
+                if (currentLeader.getNodeId().equals(nodeId) && (groupedNodes.size() == 1 || commitCount >= (groupSize * 2) / 3)) {
+                    commitCount = 0; // Reset commit count after adding block
+
+                    // Broadcast the newly added block to all nodes
+                    String broadcastBlockMessage = "UPLOAD_NEW_BLOCK-" + block;
+                    broadcastMessage(broadcastBlockMessage, nodeInfos);
+                    System.out.println("[UPLOAD_NEW_BLOCK] " + nodeId + " Received all and broadcasted NEW_BLOCK message to all nodes");
+                }
+            }
+
+            if ("UPLOAD_NEW_BLOCK".equals(reqParts[0])) {
+                // Skip if the NEW_BLOCK message is from the current leader
+                if (currentLeader.getNodeId().equals(nodeId)) {
+                     return;
+                }
+
+               String serializedBlock = request.substring(request.indexOf("-") + 1); // Extract everything after "NEW_BLOCK-"
+               try {
+                   ftcBlockchain.addBlock(serializedBlock);
+                   FTCBlock lastBlock = ftcBlockchain.getLastBlock();
+                   System.out.println("[UPLOAD-STEP-2] " + nodeId + " Received new block: " + lastBlock.getHash());
+               } catch (Exception e) {
+                   System.err.println("Error at: " + nodeId + " Chain error: "+ e.getMessage());
+                   e.printStackTrace();
+               }
+            }
 
         } catch (Exception e) {
             System.err.println("Error handling client request: " + e.getMessage());
@@ -523,9 +646,8 @@ public class Node {
         }
     }
 
-
     // handle user input
-    public static void handleUserInput() {
+    public void handleUserInput() {
         Scanner scanner = new Scanner(System.in);
         System.out.println("Enter command (type 'help' for available commands):");
         while (true) {
@@ -548,6 +670,33 @@ public class Node {
                     System.out.println("Exiting...");
                     System.exit(0);
                     break;
+                case "upload":
+                    String filePath = parts[1];
+                    Transaction transaction = null;
+                    // Upload the file and get the transaction pass the current node
+                    NodeInfo currentNode = new NodeInfo(nodeId, nodePort, efficiencyScore, reputationScore);
+                    try {
+                        transaction = Upload.upload(filePath, currentNode);
+                    } catch (Exception e) {
+                        System.err.println("Error uploading file: " + e.getMessage());
+                    }
+
+                    // Create a new FTC block with the transaction
+                    if (transaction == null) {
+                        System.err.println("Transaction is null. Cannot create FTC block.");
+                        return;
+                    }
+                    createFTCBlock(transaction);
+                    break;
+                case "Download":
+                    String filename = parts[1];
+                    String fileHash = parts[2];
+                    // Need to find the block with same fileHash
+
+//                    Download.download();
+                    break;
+                case "DownloadANDSend":
+                    break;
                 default:
                     System.out.println("Unknown command: " + command);
                     break;
@@ -555,7 +704,6 @@ public class Node {
 
         }
     }
-
 
     public static void main(String[] args) {
         if (args.length != 2 || args[0].startsWith("-help")) {
@@ -599,7 +747,8 @@ public class Node {
                 // print the blockchain at the end if nodeId is user1 or user2
                 if (nodeId.equals("user1") || nodeId.equals("user2")) {
                     System.out.println("Blockchain for " + nodeId + ":");
-                    node.ficBlockchain.printBlockchain();
+//                    node.ficBlockchain.printBlockchain();
+                    node.ftcBlockchain.printBlockchain();
                 }
 
             } catch (Exception e) {

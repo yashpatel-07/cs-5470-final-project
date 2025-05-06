@@ -1,5 +1,7 @@
 package models;
 
+import com.google.gson.Gson;
+
 public class NodeInfo {
     private String nodeId; // Unique identifier for the node, e.g., username
     private int nodePort; // Port number for the node
@@ -13,14 +15,19 @@ public class NodeInfo {
         this.reputationScore = reputationScore;
     }
 
+//    @Override
+//    public String toString() {
+//        return "{" +
+//                "\"nodeId\":\"" + nodeId + "\"," +
+//                "\"nodePort\":" + nodePort + "," +
+//                "\"efficiencyScore\":" + efficiencyScore + "," +
+//                "\"reputationScore\":" + reputationScore +
+//                "}";
+//    }
+
     @Override
     public String toString() {
-        return "{" +
-                "\"nodeId\":\"" + nodeId + "\"," +
-                "\"nodePort\":" + nodePort + "," +
-                "\"efficiencyScore\":" + efficiencyScore + "," +
-                "\"reputationScore\":" + reputationScore +
-                "}";
+        return new Gson().toJson(this);
     }
 
     // Getters and Setters

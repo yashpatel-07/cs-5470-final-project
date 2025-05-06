@@ -17,7 +17,7 @@ public class Download {
      * @param username The username of the user downloading the file.
      * @throws Exception If any error occurs during the download or decryption process.
      */
-    public static void download(String fileName, String fileHash, String eFilekey, String username) {
+    public static String download(String fileName, String fileHash, String eFilekey, String username) {
         // STEP 1: DOWNLOAD FILE FROM IPFS
         String basePath = "files/";
         try {
@@ -76,6 +76,8 @@ public class Download {
             throw new RuntimeException("Failed to decrypt the file: " + e.getMessage(), e);
         }
 
+        // Return the path of the decrypted file
+        return basePath + "decrypted_" + fileName;
     }
 
     public static void main(String[] args) {
@@ -94,7 +96,8 @@ public class Download {
         String username = args[3];
 
         try {
-            download(fileName, fileHash, eFilekey, username);
+            String path = download(fileName, fileHash, eFilekey, username);
+            System.out.println("File downloaded and decrypted successfully. Decrypted file path: " + path);
         } catch (Exception e) {
             System.err.println("Error during download: " + e.getMessage());
         }

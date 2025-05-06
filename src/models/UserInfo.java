@@ -1,5 +1,7 @@
 package models;
 
+import com.google.gson.Gson;
+
 public class UserInfo {
     private String publicKey; // User's public key
     private String encryptedFileKey; // Encrypted file key for the user
@@ -11,10 +13,7 @@ public class UserInfo {
 
     @Override
     public String toString() {
-        return "{" +
-                "\"publicKey\":\"" + publicKey + "\"," +
-                "\"encryptedFileKey\":\"" + encryptedFileKey + "\"" +
-                "}";
+        return new Gson().toJson(this);
     }
 
     // Getters and Setters

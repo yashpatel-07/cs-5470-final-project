@@ -1,64 +1,62 @@
 package models;
 
+import com.google.gson.Gson;
 import utils.HashUtil;
 
 public class Transaction {
-    private String sender;
-    private String receiver;
+    private NodeInfo sender;
+    private NodeInfo receiver;
+    private String fileName;
     private String fileHash;
+    private String senderPublicKey;
+    private String receiverPublicKey;
     private String encryptedFileKey;
-    private long timestamp;
     private String transactionType;
     private String creatorSign;
     private String validatorSign;
 
-    public Transaction(String sender, String receiver, String fileHash,
-                       String encryptedFileKey, long timestamp, String transactionType,
+    public Transaction(NodeInfo sender, NodeInfo receiver, String fileName, String fileHash, String senderPublicKey, String receiverPublicKey,
+                       String encryptedFileKey, String transactionType,
                        String creatorSign, String validatorSign) {
         this.sender = sender;
         this.receiver = receiver;
+        this.fileName = fileName;
         this.fileHash = fileHash;
+        this.senderPublicKey = senderPublicKey;
+        this.receiverPublicKey = receiverPublicKey;
         this.encryptedFileKey = encryptedFileKey;
-        this.timestamp = timestamp;
         this.transactionType = transactionType;
         this.creatorSign = creatorSign;
         this.validatorSign = validatorSign;
     }
 
-    public String calculateTransactionHash() {
-        String input = sender + receiver + fileHash + encryptedFileKey + timestamp + transactionType + creatorSign + validatorSign;
-        return HashUtil.generateSHA256(input);
-    }
-
     @Override
     public String toString() {
-        return "{" +
-                "\"sender\":\"" + sender + "\"," +
-                "\"receiver\":\"" + receiver + "\"," +
-                "\"fileHash\":\"" + fileHash + "\"," +
-                "\"encryptedFileKey\":\"" + encryptedFileKey + "\"," +
-                "\"timestamp\":" + timestamp + "," +
-                "\"transactionType\":\"" + transactionType + "\"," +
-                "\"creatorSign\":\"" + creatorSign + "\"," +
-                "\"validatorSign\":\"" + validatorSign + "\"" +
-                "}";
+        return new Gson().toJson(this);
     }
 
-    // Getters and Setters
-    public String getSender() { return sender; }
-    public void setSender(String sender) { this.sender = sender; }
 
-    public String getReceiver() { return receiver; }
-    public void setReceiver(String receiver) { this.receiver = receiver; }
+    // Getters and Setters
+    public NodeInfo getSender() { return sender; }
+    public void setSender(NodeInfo sender) { this.sender = sender; }
+
+    public NodeInfo getReceiver() { return receiver; }
+    public void setReceiver(NodeInfo receiver) { this.receiver = receiver; }
+
+    public String getFileName() { return fileName; }
+    public void setFileName(String fileName) { this.fileName = fileName; }
+
+    public String getSenderPublicKey() { return senderPublicKey; }
+    public void setSenderPublicKey(String senderPublicKey) { this.senderPublicKey = senderPublicKey; }
+
+    public String getReceiverPublicKey() { return receiverPublicKey; }
+    public void setReceiverPublicKey(String receiverPublicKey) { this.receiverPublicKey = receiverPublicKey; }
 
     public String getFileHash() { return fileHash; }
     public void setFileHash(String fileHash) { this.fileHash = fileHash; }
 
     public String getEncryptedFileKey() { return encryptedFileKey; }
     public void setEncryptedFileKey(String encryptedFileKey) { this.encryptedFileKey = encryptedFileKey; }
-
-    public long getTimestamp() { return timestamp; }
-    public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
 
     public String getTransactionType() { return transactionType; }
     public void setTransactionType(String transactionType) { this.transactionType = transactionType; }
