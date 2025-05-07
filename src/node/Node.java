@@ -4,6 +4,8 @@ import blockchain.FICBlock;
 import blockchain.FICBlockchain;
 import blockchain.FTCBlock;
 import blockchain.FTCBlockchain;
+import com.google.gson.Gson;
+import download.Download;
 import models.*;
 import upload.Upload;
 import utils.BlockUtil;
@@ -62,10 +64,10 @@ public class Node {
             try {
                 // Calculate the delay until the next minute starts
                 long currentTime = System.currentTimeMillis();
-                long nextMinute = ((currentTime / 60000) + 1) * 60000;
+                long nextMinute = ((currentTime / 60000) + 2) * 60000;
                 long delay = nextMinute - currentTime;
 
-                System.out.println("[STEP-1] " + nodeId + " Waiting until the next minute..." + delay);
+                System.out.println("[STEP-1] " + nodeId + " Waiting until the 2 minute..." + delay);
                 // Wait until the next minute
                 Thread.sleep(delay);
 
@@ -398,8 +400,8 @@ public class Node {
                 .filter(node -> node.getNodeId().equals(currentLeader.getNodeId()))
                 .collect(Collectors.toList());
         broadcastMessage(message, currLeader);
-        System.out.println("[UPLOAD-STEP-1] " + nodeId + " Created new block: " + newBlock.getHash());
-        System.out.println("[UPLOAD_PRE_PREPARE] " + nodeId + " Broadcasted PRE_PREPARE message to current leader: " + currentLeader.getNodeId());
+        System.out.println("[UPLOAD/SHARE-STEP-1] " + nodeId + " Created new block: " + newBlock.getHash());
+        System.out.println("[UPLOAD/SHARE_PRE_PREPARE] " + nodeId + " Broadcasted PRE_PREPARE message to current leader: " + currentLeader.getNodeId());
     }
 
     private void handleClientRequest(Socket clientSocket) {
@@ -563,7 +565,7 @@ public class Node {
                 // Send PREPARE_UPLOAD message to the group
                 broadcastMessage(message, group);
 
-                System.out.println("[UPLOAD_PREPARE] " + nodeId + " Received block from node and broadcasted PREPARE_UPLOAD message to the group" );
+                System.out.println("[UPLOAD/SHARE_PREPARE] " + nodeId + " Received block from node and broadcasted PREPARE_UPLOAD message to the group" );
             }
 
             if ("UPLOAD_PREPARE".equals(reqParts[0])) {
@@ -581,7 +583,7 @@ public class Node {
                 // Send commit message only to the current leader
                 if (currentLeader != null && !currentLeader.getNodeId().equals(nodeId)) {
                     broadcastMessage(commit, Collections.singletonList(currentLeader));
-                    System.out.println("[PREPARE & UPLOAD_COMMIT] " + nodeId + " Received prepare message for block and broadcasted commit to current leader: " + currentLeader.getNodeId());
+                    System.out.println("[PREPARE & UPLOAD/SHARE_COMMIT] " + nodeId + " Received prepare message for block and broadcasted commit to current leader: " + currentLeader.getNodeId());
                 }
             }
 
@@ -603,7 +605,7 @@ public class Node {
                     // Broadcast the newly added block to all nodes
                     String broadcastBlockMessage = "UPLOAD_NEW_BLOCK-" + block;
                     broadcastMessage(broadcastBlockMessage, nodeInfos);
-                    System.out.println("[UPLOAD_NEW_BLOCK] " + nodeId + " Received all and broadcasted NEW_BLOCK message to all nodes");
+                    System.out.println("[UPLOAD/SHARE_NEW_BLOCK] " + nodeId + " Received all and broadcasted NEW_BLOCK message to all nodes");
                 }
             }
 
@@ -617,11 +619,22 @@ public class Node {
                try {
                    ftcBlockchain.addBlock(serializedBlock);
                    FTCBlock lastBlock = ftcBlockchain.getLastBlock();
-                   System.out.println("[UPLOAD-STEP-2] " + nodeId + " Received new block: " + lastBlock.getHash());
+                   System.out.println("[UPLOAD/SHARE-STEP-2] " + nodeId + " Received new block: " + lastBlock.getHash());
                } catch (Exception e) {
                    System.err.println("Error at: " + nodeId + " Chain error: "+ e.getMessage());
                    e.printStackTrace();
                }
+            }
+
+            if ("SHARE".equals(reqParts[0])) {
+                String[] parts = request.split("-", 2);
+                String transactionStr = parts[1];
+
+                // Parse the transaction string to create a Transaction object using Gson
+                 Transaction transaction = new Gson().fromJson(transactionStr, Transaction.class);
+
+                // Receive the share transaction
+                System.out.println("[SHARE_RECEIVED] " + nodeId + " Received share transaction: " + transaction.getEncryptedFileKey() + "\n FileName: " + transaction.getFileName() + "\n FileHash: " + transaction.getFileHash());
             }
 
         } catch (Exception e) {
@@ -665,6 +678,8 @@ public class Node {
                     System.out.println("Available commands:");
                     System.out.println("1. help - Show available commands");
                     System.out.println("2. exit - Exit the program");
+                    System.out.println("3. upload <filePath> - Upload a file");
+                    System.out.println("4. share <blockIndex> <receiverId> [fileName] [fileHash] - Share a file with another node");
                     break;
                 case "exit":
                     System.out.println("Exiting...");
@@ -672,30 +687,58 @@ public class Node {
                     break;
                 case "upload":
                     String filePath = parts[1];
-                    Transaction transaction = null;
-                    // Upload the file and get the transaction pass the current node
+                    Transaction uploadTransaction = null;
+                    // Upload the file and get the uploadTransaction pass the current node
                     NodeInfo currentNode = new NodeInfo(nodeId, nodePort, efficiencyScore, reputationScore);
                     try {
-                        transaction = Upload.upload(filePath, currentNode);
+                        uploadTransaction = Upload.upload(filePath, currentNode);
                     } catch (Exception e) {
                         System.err.println("Error uploading file: " + e.getMessage());
                     }
 
-                    // Create a new FTC block with the transaction
-                    if (transaction == null) {
+                    // Create a new FTC block with the uploadTransaction
+                    if (uploadTransaction == null) {
                         System.err.println("Transaction is null. Cannot create FTC block.");
                         return;
                     }
-                    createFTCBlock(transaction);
+                    createFTCBlock(uploadTransaction);
                     break;
-                case "Download":
-                    String filename = parts[1];
-                    String fileHash = parts[2];
-                    // Need to find the block with same fileHash
+                case "share":
+                    String type = "share";
+                    int blockIndex = Integer.parseInt(parts[1]);
+                    String receiverId = parts[2];
 
-//                    Download.download();
-                    break;
-                case "DownloadANDSend":
+                    NodeInfo senderNode = new NodeInfo(nodeId, nodePort, efficiencyScore, reputationScore);
+                    // Find the receiver node from NodeInfo list
+                    NodeInfo receiverNode = nodeInfos.stream()
+                            .filter(node -> node.getNodeId().equals(receiverId))
+                            .findFirst()
+                            .orElse(null);
+
+                    // Find the block with the given index
+                    FTCBlock ftcBlock = ftcBlockchain.getBlock(blockIndex);
+                    String eFileKey = ftcBlock.getFileInfo().getEncryptedFileKey();
+                    String fileName = ftcBlock.getFileInfo().getFileName();
+                    String fileHash = ftcBlock.getFileInfo().getFileHash();
+
+                    Transaction shareTransaction = null;
+                    try {
+                        shareTransaction = Download.download(fileName, fileHash, eFileKey, senderNode, receiverNode, type);
+                    } catch (Exception e) {
+                        System.err.println("Error creating share transaction: " + e.getMessage());
+                    }
+
+                    // Create a new FTC block with the uploadTransaction
+                    if (shareTransaction == null) {
+                        System.err.println("Transaction is null. Cannot create FTC block.");
+                        return;
+                    }
+                    createFTCBlock(shareTransaction);
+
+                    // Send receiver node the share transaction message
+                    List<NodeInfo> reciverNodes = new ArrayList<>();
+                    reciverNodes.add(receiverNode);
+                    broadcastMessage("SHARE-" + shareTransaction, reciverNodes);
                     break;
                 default:
                     System.out.println("Unknown command: " + command);

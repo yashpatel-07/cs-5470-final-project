@@ -75,22 +75,24 @@ public class Upload {
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("publicKey not found"));
 
+        String[] pubParts = pubKey.split("=")[1].split(",");
+        BigInteger e = new BigInteger(pubParts[0]);
+        BigInteger n = new BigInteger(pubParts[1]);
+
         String privKey = fileContent.lines()
                 .filter(line -> line.startsWith("privateKey="))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("privateKey not found"));
+        String[] privParts = privKey.split("=")[1].split(",");
+        BigInteger d = new BigInteger(privParts[0]);
 
         try {
-            String[] pubParts = pubKey.split("=")[1].split(",");
-            BigInteger e = new BigInteger(pubParts[0]);
-            BigInteger n = new BigInteger(pubParts[1]);
-
             BigInteger fileKey = new BigInteger(fernKey.getBytes(StandardCharsets.UTF_8));
             eFileKey = EncryptDecrypt.encrypt(fileKey, e, n);
 
             System.out.println("STEP 3: SUCCESS");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to encrypt the fileKey: " + e.getMessage(), e);
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed to encrypt the fileKey: " + ex.getMessage(), ex);
         }
 
         // STEP 4: UPLOAD FILE TO IPFS AND GET FILE HASH (CID)
@@ -101,46 +103,39 @@ public class Upload {
             fileHash = ipfsUtil.upload(fileOutPath);
 
             System.out.println("STEP 4: SUCCESS fileHash: " + fileHash);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to upload on IPFS: " + e.getMessage(), e);
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed to upload on IPFS: " + ex.getMessage(), ex);
         }
 
         // STEP 5: CREATE A TRANSACTION
-        NodeInfo sender = node;
-        NodeInfo receiver = null;
         String bFileName = fileName;
         String bFileHash = fileHash;
-        String bSenderPublicKey = pubKey.split("=")[1];
-        String bReceiverPublicKey = null;
         String bEncryptedFileKey = eFileKey.toString();
         String bTransactionType = "upload";
-        String bCreatorSign = null;
-        String bValidatorSign = null;
-        Transaction transaction = new Transaction(sender, receiver, bFileName, bFileHash, bSenderPublicKey, bReceiverPublicKey,
-                bEncryptedFileKey, bTransactionType, bCreatorSign, bValidatorSign);
+        Transaction transaction = new Transaction(node, null, bFileName, bFileHash, pubKey, null,
+                bEncryptedFileKey, bTransactionType, null, null);
 
         System.out.println("STEP 5: SUCCESS");
 
         // STEP 6: SIGN TRANSACTION WITH USER'S PRIVATE KEY
         try {
-            String[] privParts = privKey.split("=")[1].split(",");
-            BigInteger d = new BigInteger(privParts[0]);
-            BigInteger n = new BigInteger(privParts[1]);
+            String transactionStr = transaction.toString();
+            // Convert the transaction string to a BigInteger
+            BigInteger transactionBigInt = new BigInteger(transactionStr.getBytes(StandardCharsets.UTF_8));
 
-            String transactionHash = transaction.toString();
-            BigInteger transactionHashBigInt = new BigInteger(transactionHash.getBytes(StandardCharsets.UTF_8));
-            // Handle the case where transactionHashBigInt is greater than n
-            if (transactionHashBigInt.compareTo(n) >= 0) {
-                transactionHashBigInt = transactionHashBigInt.mod(n);
+            // Check if the transactionHash is less than n, if not we use modulus to make it smaller than n
+            if (transactionBigInt.compareTo(n) >= 0) {
+                transactionBigInt = transactionBigInt.mod(n);
             }
-            BigInteger signedTransaction = EncryptDecrypt.encrypt(transactionHashBigInt, d, n);
+
+            String signedTransaction = EncryptDecrypt.sign(transactionBigInt, d, n);
 
             // Convert signedTransaction to string and set it in the transaction
-            transaction.setCreatorSign(signedTransaction.toString());
+            transaction.setCreatorSign(signedTransaction);
             System.out.println("STEP 6: SUCCESS creatorsSign");
 
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to sign the transaction: " + e.getMessage(), e);
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed to sign the transaction: " + ex.getMessage(), ex);
         }
 
         // Return the created transaction

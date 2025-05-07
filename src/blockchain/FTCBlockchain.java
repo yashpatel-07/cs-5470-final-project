@@ -135,7 +135,6 @@ public class FTCBlockchain {
         FTCBlock newBlock = new FTCBlock(1, System.currentTimeMillis(), fileInfo, userInfos, transaction, blockchain.getLastBlock().getHash(), BlockUtil.calculateFTCBlockHash(1, System.currentTimeMillis(), fileInfo, userInfos, transaction, blockchain.getLastBlock().getHash()));
         blockchain.addBlock(newBlock);
 
-
         System.out.println("Blockchain after adding a new block:");
         blockchain.printBlockchain();
 

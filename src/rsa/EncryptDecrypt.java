@@ -19,4 +19,8 @@ public class EncryptDecrypt {
         }
         return cipherText.modPow(d, n);
     }
+
+    public static String sign(BigInteger message, BigInteger d, BigInteger n) {
+        return encrypt(message, d, n).toString();
+    }
 }
