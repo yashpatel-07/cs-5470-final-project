@@ -5,15 +5,13 @@ import blockchain.FICBlockchain;
 import blockchain.FTCBlock;
 import blockchain.FTCBlockchain;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import download.Download;
 import models.*;
 import upload.Upload;
 import utils.BlockUtil;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.*;
@@ -362,6 +360,16 @@ public class Node {
         broadcastMessage(message, leaders);
         System.out.println("[STEP-7] " + nodeId + " Created new block: " + newBlock.getHash());
         System.out.println("[PRE_PREPARE] " + nodeId + " Broadcasted PRE_PREPARE message to leaders: " + leaders.stream().map(NodeInfo::getNodeId).collect(Collectors.joining(",")));
+
+        if ("user1".equals(nodeId)) {
+            try (FileWriter writer = new FileWriter("fic_blockchain.log", true)) {
+                Gson gson = new GsonBuilder().setPrettyPrinting().create();
+                String jsonBlock = gson.toJson(newBlock);
+                writer.write(jsonBlock + System.lineSeparator());
+            } catch (IOException e) {
+                System.err.println("Error writing block to file: " + e.getMessage());
+            }
+        }
     }
 
     private void createFTCBlock(Transaction transaction) {
@@ -374,6 +382,14 @@ public class Node {
         FileInfo fileInfo = new FileInfo(fileName, fileHash, encryptedFileKey);
         String sendersPublicKey = transaction.getSenderPublicKey();
         String receiversPublicKey = transaction.getReceiverPublicKey();
+
+        // if the sender and receiver PublicKey are null set "null" to the public key
+        if (sendersPublicKey == null) {
+            sendersPublicKey = "null";
+        }
+        if (receiversPublicKey == null) {
+            receiversPublicKey = "null";
+        }
 
         NodeInfo senderNode = transaction.getSender();
         NodeInfo receiverNode = transaction.getReceiver();
@@ -400,8 +416,18 @@ public class Node {
                 .filter(node -> node.getNodeId().equals(currentLeader.getNodeId()))
                 .collect(Collectors.toList());
         broadcastMessage(message, currLeader);
-        System.out.println("[UPLOAD/SHARE-STEP-1] " + nodeId + " Created new block: " + newBlock.getHash());
-        System.out.println("[UPLOAD/SHARE_PRE_PREPARE] " + nodeId + " Broadcasted PRE_PREPARE message to current leader: " + currentLeader.getNodeId());
+        System.out.println("[UPLOAD/SHARE/DOWNLOAD-STEP-1] " + nodeId + " Created new block: " + newBlock.getHash());
+        System.out.println("[UPLOAD/SHARE/DOWNLOAD_PRE_PREPARE] " + nodeId + " Broadcasted PRE_PREPARE message to current leader: " + currentLeader.getNodeId());
+
+        if ("user1".equals(nodeId)) {
+            try (FileWriter writer = new FileWriter("ftc_blockchain.log", true)) {
+                Gson gson = new GsonBuilder().setPrettyPrinting().create();
+                String jsonBlock = gson.toJson(newBlock);
+                writer.write(jsonBlock + System.lineSeparator());
+            } catch (IOException e) {
+                System.err.println("Error writing block to file: " + e.getMessage());
+            }
+        }
     }
 
     private void handleClientRequest(Socket clientSocket) {
@@ -565,7 +591,7 @@ public class Node {
                 // Send PREPARE_UPLOAD message to the group
                 broadcastMessage(message, group);
 
-                System.out.println("[UPLOAD/SHARE_PREPARE] " + nodeId + " Received block from node and broadcasted PREPARE_UPLOAD message to the group" );
+                System.out.println("[UPLOAD/SHARE/DOWNLOAD_PREPARE] " + nodeId + " Received block from node and broadcasted PREPARE_UPLOAD message to the group" );
             }
 
             if ("UPLOAD_PREPARE".equals(reqParts[0])) {
@@ -583,7 +609,7 @@ public class Node {
                 // Send commit message only to the current leader
                 if (currentLeader != null && !currentLeader.getNodeId().equals(nodeId)) {
                     broadcastMessage(commit, Collections.singletonList(currentLeader));
-                    System.out.println("[PREPARE & UPLOAD/SHARE_COMMIT] " + nodeId + " Received prepare message for block and broadcasted commit to current leader: " + currentLeader.getNodeId());
+                    System.out.println("[PREPARE & UPLOAD/SHARE/DOWNLOAD_COMMIT] " + nodeId + " Received prepare message for block and broadcasted commit to current leader: " + currentLeader.getNodeId());
                 }
             }
 
@@ -605,7 +631,7 @@ public class Node {
                     // Broadcast the newly added block to all nodes
                     String broadcastBlockMessage = "UPLOAD_NEW_BLOCK-" + block;
                     broadcastMessage(broadcastBlockMessage, nodeInfos);
-                    System.out.println("[UPLOAD/SHARE_NEW_BLOCK] " + nodeId + " Received all and broadcasted NEW_BLOCK message to all nodes");
+                    System.out.println("[UPLOAD/SHARE/DOWNLOAD_NEW_BLOCK] " + nodeId + " Received all and broadcasted NEW_BLOCK message to all nodes");
                 }
             }
 
@@ -725,7 +751,7 @@ public class Node {
                     try {
                         shareTransaction = Download.download(fileName, fileHash, eFileKey, senderNode, receiverNode, type);
                     } catch (Exception e) {
-                        System.err.println("Error creating share transaction: " + e.getMessage());
+                        System.err.println("Error creating share downTransaction: " + e.getMessage());
                     }
 
                     // Create a new FTC block with the uploadTransaction
@@ -735,10 +761,38 @@ public class Node {
                     }
                     createFTCBlock(shareTransaction);
 
-                    // Send receiver node the share transaction message
+                    // Send receiver node the share downTransaction message
                     List<NodeInfo> reciverNodes = new ArrayList<>();
                     reciverNodes.add(receiverNode);
                     broadcastMessage("SHARE-" + shareTransaction, reciverNodes);
+                    break;
+                case "download":
+                    String type2 = "download";
+                    int blockIndex2 = Integer.parseInt(parts[1]);
+
+                    NodeInfo senderNode2 = new NodeInfo(nodeId, nodePort, efficiencyScore, reputationScore);
+
+                    // Find the block with the given index
+                    FTCBlock ftcBlock2 = ftcBlockchain.getBlock(blockIndex2);
+                    String eFileKey2 = ftcBlock2.getFileInfo().getEncryptedFileKey();
+                    String fileName2 = ftcBlock2.getFileInfo().getFileName();
+                    String fileHash2 = ftcBlock2.getFileInfo().getFileHash();
+
+                    Transaction downTransaction;
+                    try {
+                        downTransaction = Download.download(fileName2, fileHash2, eFileKey2, senderNode2, null, type2);
+                    } catch (Exception e) {
+                        System.err.println("Error creating download downTransaction: " + e.getMessage());
+                        return;
+                    }
+
+                    // Create a new FTC block with the uploadTransaction
+                    if (downTransaction == null) {
+                        System.err.println("Transaction is null. Cannot create FTC block.");
+                        return;
+                    }
+
+                    createFTCBlock(downTransaction);
                     break;
                 default:
                     System.out.println("Unknown command: " + command);
@@ -788,11 +842,10 @@ public class Node {
                 }
 
                 // print the blockchain at the end if nodeId is user1 or user2
-                if (nodeId.equals("user1") || nodeId.equals("user2")) {
-                    System.out.println("Blockchain for " + nodeId + ":");
-//                    node.ficBlockchain.printBlockchain();
-                    node.ftcBlockchain.printBlockchain();
-                }
+//                if (nodeId.equals("user1") || nodeId.equals("user2")) {
+//                    System.out.println("Blockchain for " + nodeId + ":");
+//                    node.ftcBlockchain.printBlockchain();
+//                }
 
             } catch (Exception e) {
                 System.err.println("Error while shutting down: " + e.getMessage());
