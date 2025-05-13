@@ -15,7 +15,7 @@ Start -
 3. Available commands
    - `exit - exit the program`
    - `upload <filePath> - Upload a file`
-   - `share <blockIndex> <receiverId> [fileName] [fileHash] - Share a file with another node`
+   - `share <blockIndex> <receiverId> [fileName - optional] [fileHash - optional] - Share a file with another node`
    - `download <blockIndex> - To download a file`
      
 Note - if you upload the file and it makes the block on index 1, `blockIndex = 1`. Since, it's the root block of file.
